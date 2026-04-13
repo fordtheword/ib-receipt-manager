@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Receipt Manager{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Settings</h2>
+
+    <form action="/settings" method="post">
+        <div class="form-group">
+            <label for="ohanterade_folder">Kvitton Ohanterade Folder</label>
+            <input type="text" id="ohanterade_folder" name="ohanterade_folder"
+                   value="{{ settings.get('ohanterade_folder', '') }}"
+                   placeholder="C:\path\to\Kvitton ohanterade">
+            <small class="text-muted">
+                After processing a receipt, you'll be asked if you want to delete the original files from this folder.
+                Leave empty to disable this feature.
+            </small>
+        </div>
+
+        {% if folder_status %}
+        <div style="margin-bottom: 15px; padding: 10px; border-radius: 4px;
+                    {% if folder_status == 'valid' %}background: #2d4a3e; border: 1px solid #4a7c59;
+                    {% elif folder_status == 'invalid' %}background: #4a2d2d; border: 1px solid #7c4a4a;
+                    {% else %}background: #3a3a3a; border: 1px solid #555;{% endif %}">
+            {% if folder_status == 'valid' %}
+                <span style="color: #90EE90;">✓ Folder exists and is accessible</span>
+            {% elif folder_status == 'invalid' %}
+                <span style="color: #FFB6C1;">✗ Folder does not exist or is not accessible</span>
+            {% else %}
+                <span style="color: #aaa;">No folder configured</span>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-success">Save Settings</button>
+            <a href="/" class="btn">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h3>Current Configuration</h3>
+    <table>
+        <tr>
+            <th style="width: 200px;">Dropbox Folder</th>
+            <td>{{ dropbox_path or 'Not configured' }}</td>
+        </tr>
+        <tr>
+            <th>OCR Backend</th>
+            <td>{{ ocr_backend }}</td>
+        </tr>
+        <tr>
+            <th>Email Configured</th>
+            <td>{% if email_configured %}✓ Yes{% else %}✗ No{% endif %}</td>
+        </tr>
+    </table>
+</div>
+{% endblock %}

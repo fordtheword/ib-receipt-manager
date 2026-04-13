@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Receipt Manager{% endblock %}</title>
+    <style>
+        :root {
+            --bg-color: #f5f5f5;
+            --card-bg: white;
+            --header-bg: #2c3e50;
+            --text-color: #2c3e50;
+            --text-muted: #7f8c8d;
+            --border-color: #ddd;
+            --table-hover: #f8f9fa;
+            --input-bg: white;
+        }
+        [data-theme="dark"] {
+            --bg-color: #1a1a2e;
+            --card-bg: #16213e;
+            --header-bg: #0f3460;
+            --text-color: #eee;
+            --text-muted: #aaa;
+            --border-color: #333;
+            --table-hover: #1f2940;
+            --input-bg: #1a1a2e;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            transition: background 0.3s, color 0.3s;
+        }
+        header {
+            background: var(--header-bg);
+            color: white;
+            padding: 20px;
+            margin: -20px -20px 20px;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        header h1 { font-size: 1.5rem; }
+        header nav { margin-top: 10px; }
+        header nav a {
+            color: #ecf0f1;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        header nav a:hover { text-decoration: underline; }
+        .theme-toggle {
+            background: none;
+            border: 1px solid #ecf0f1;
+            color: #ecf0f1;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .theme-toggle:hover { background: rgba(255,255,255,0.1); }
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card h2 {
+            margin-bottom: 15px;
+            color: var(--text-color);
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .card h3 { color: var(--text-color); margin-bottom: 10px; }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 1rem;
+            background: var(--input-bg);
+            color: var(--text-color);
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            text-decoration: none;
+        }
+        .btn:hover { background: #2980b9; }
+        .btn-success { background: #27ae60; }
+        .btn-success:hover { background: #229954; }
+        .btn-danger { background: #e74c3c; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-warning { background: #f39c12; }
+        .btn-warning:hover { background: #d68910; }
+        .upload-zone, .drop-zone {
+            border: 3px dashed #3498db;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .upload-zone:hover, .drop-zone:hover { background: rgba(52, 152, 219, 0.1); }
+        .upload-zone.dragover, .drop-zone.drag-over { background: rgba(39, 174, 96, 0.2); border-color: #27ae60; }
+        .drop-zone { padding: 20px; margin-top: 10px; }
+        .attachment-list {
+            list-style: none;
+            margin-bottom: 10px;
+        }
+        .attachment-list li {
+            padding: 8px 12px;
+            background: var(--table-hover);
+            border-radius: 4px;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        th { background: var(--table-hover); font-weight: 600; }
+        tr:hover { background: var(--table-hover); }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .badge-lev { background: #d5f5e3; color: #1e8449; }
+        .badge-annat { background: #fdebd0; color: #b9770e; }
+        .status-ok { color: #27ae60; }
+        .status-pending { color: #f39c12; cursor: pointer; }
+        .text-muted { color: var(--text-muted); font-size: 0.9rem; }
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .alert-success { background: #d5f5e3; color: #1e8449; }
+        .alert-error { background: #fadbd8; color: #c0392b; }
+        .raw-text {
+            background: var(--table-hover);
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 600px) {
+            body { padding: 10px; }
+            header {
+                margin: -10px -10px 15px;
+                padding: 15px;
+                flex-direction: column;
+                gap: 10px;
+            }
+            .card { padding: 15px; }
+            table { font-size: 0.85rem; }
+            th, td { padding: 8px 4px; }
+            .btn { padding: 8px 12px; font-size: 0.9rem; }
+            .form-group input, .form-group select { font-size: 16px; } /* Prevent zoom on iOS */
+            div[style*="display: flex"] { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Receipt Manager</h1>
+        <nav>
+            <a href="/">Upload</a>
+            <a href="/receipts">All Receipts</a>
+            <a href="/settings">Settings</a>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    <script>
+        // Theme toggle
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateToggleButton(next);
+        }
+
+        function updateToggleButton(theme) {
+            const btn = document.querySelector('.theme-toggle');
+            btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        }
+
+        // Initialize theme
+        (function() {
+            const saved = localStorage.getItem('theme');
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = saved || (prefersDark ? 'dark' : 'light');
+            if (theme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+            updateToggleButton(theme);
+        })();
+    </script>
+</body>
+</html>

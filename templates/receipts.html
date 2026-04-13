@@ -1,0 +1,647 @@
+{% extends "base.html" %}
+
+{% block title %}All Receipts - Receipt Manager{% endblock %}
+
+{% block content %}
+<style>
+.file-dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 100;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    min-width: 200px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+.file-dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+.file-dropdown-item:last-child {
+    border-bottom: none;
+}
+.file-dropdown-item:hover {
+    background: var(--table-hover);
+}
+.month-header {
+    cursor: pointer;
+    user-select: none;
+}
+.month-header td {
+    background: var(--header-bg);
+    color: #fff;
+    font-weight: 600;
+    font-size: 15px;
+    padding: 10px 14px !important;
+    border-radius: 4px;
+}
+.month-header td .toggle-icon {
+    display: inline-block;
+    width: 18px;
+    transition: transform 0.2s;
+}
+.month-header td .toggle-icon.collapsed {
+    transform: rotate(-90deg);
+}
+.month-header:hover td {
+    opacity: 0.9;
+}
+.month-group.collapsed tr:not(.month-header) {
+    display: none;
+}
+/* Reminder styles */
+.reminder-section {
+    margin-bottom: 20px;
+    border: 2px solid #f59e0b;
+    border-radius: 8px;
+    overflow: hidden;
+}
+.reminder-header {
+    background: #f59e0b;
+    color: #000;
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.reminder-header:hover {
+    opacity: 0.9;
+}
+.reminder-header .pulse-dot {
+    width: 10px;
+    height: 10px;
+    background: #dc2626;
+    border-radius: 50%;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+.reminder-body {
+    background: rgba(245, 158, 11, 0.08);
+}
+.reminder-section.collapsed .reminder-body {
+    display: none;
+}
+.reminder-section table {
+    margin: 0;
+    border: none;
+}
+.reminder-row {
+    background: rgba(245, 158, 11, 0.06) !important;
+}
+.reminder-row:hover {
+    background: rgba(245, 158, 11, 0.14) !important;
+}
+.btn-done {
+    background: #22c55e;
+    color: #fff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.btn-done:hover {
+    background: #16a34a;
+}
+.btn-upload-reminder {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.btn-upload-reminder:hover {
+    background: #2563eb;
+}
+.recurring-checkbox {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: #f59e0b;
+}
+.inline-reminder {
+    background: rgba(245, 158, 11, 0.10) !important;
+    border-left: 3px solid #f59e0b;
+}
+.inline-reminder:hover {
+    background: rgba(245, 158, 11, 0.18) !important;
+}
+.fulfilled-receipt {
+    background: rgba(34, 197, 94, 0.08) !important;
+    border-left: 3px solid #22c55e;
+}
+.reminder-upload-input {
+    display: none;
+}
+/* Prevent date and actions column wrapping */
+td:nth-child(2), th:nth-child(2),
+td:last-child, th:last-child {
+    white-space: nowrap;
+}
+</style>
+<div class="card">
+    <h2>All Receipts ({{ total }} total){% if total_ocr_cost > 0 %} <span class="text-muted" style="font-size: 14px; font-weight: normal;">| OCR Cost: ${{ "%.4f"|format(total_ocr_cost) }}</span>{% endif %}</h2>
+
+    <form id="filterForm" method="get" style="margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <select name="year" onchange="this.form.submit()">
+            <option value="">All Years</option>
+            {% for y in available_years %}
+            <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+        </select>
+        <select name="category" onchange="this.form.submit()">
+            <option value="">All Categories</option>
+            <option value="leverantörsfaktura" {% if category == 'leverantörsfaktura' %}selected{% endif %}>Leverantörsfaktura</option>
+            <option value="annat" {% if category == 'annat' %}selected{% endif %}>Annat</option>
+        </select>
+        <select name="email_status" onchange="this.form.submit()">
+            <option value="">All Email Status</option>
+            <option value="not_sent" {% if email_status == 'not_sent' %}selected{% endif %}>Not Mailed</option>
+            <option value="sent" {% if email_status == 'sent' %}selected{% endif %}>Mailed</option>
+        </select>
+        <input type="text" name="company" id="companySearch" placeholder="Search company..." value="{{ company or '' }}" oninput="debounceSearch()">
+        {% if category or company or email_status or year %}
+        <a href="/receipts" class="btn btn-danger">Clear</a>
+        {% endif %}
+        <button onclick="openStagingFolder()" class="btn" title="Open local staging folder">📁 Open Folder</button>
+        <button onclick="uploadAllToDropbox()" class="btn btn-warning" title="Upload all pending to Dropbox">📤 Upload All to Dropbox</button>
+    </form>
+
+    {% if due_reminders|length > 0 %}
+    <div class="reminder-section" id="reminderSection">
+        <div class="reminder-header" onclick="toggleReminderSection()">
+            <span class="pulse-dot"></span>
+            <span class="toggle-icon" id="reminderToggleIcon">&#9660;</span>
+            Reminders ({{ due_reminders|length }}) — Recurring receipts due this month
+        </div>
+        <div class="reminder-body">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Expected Date</th>
+                        <th>Company</th>
+                        <th>Category</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rem in due_reminders %}
+                    <tr class="reminder-row" id="reminder-top-{{ rem.id }}">
+                        <td>{{ rem.payment_date.day }}</td>
+                        <td>{{ rem.company_name }}</td>
+                        <td>
+                            {% if rem.category == 'leverantörsfaktura' %}
+                            <span class="badge badge-lev">Leverantör</span>
+                            {% else %}
+                            <span class="badge badge-annat">Annat</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.id }})" title="Upload receipt for this reminder">Upload</button>
+                            <input type="file" class="reminder-upload-input" id="reminder-file-{{ rem.id }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.id }})">
+                            <button class="btn-done" onclick="dismissReminder({{ rem.id }})" title="Mark as done for this month">Done</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if receipts %}
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 30px;" title="Recurring reminder">🔁</th>
+                <th>Date</th>
+                <th>Company</th>
+                <th>Category</th>
+                <th>Dropbox</th>
+                <th>Email</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        {% for month_key, month_data in grouped_receipts.items() %}
+        <tbody class="month-group{% if month_key != current_month_key %} collapsed{% endif %}" data-month="{{ month_key }}">
+            <tr class="month-header" onclick="toggleMonth(this)">
+                <td colspan="7">
+                    <span class="toggle-icon{% if month_key != current_month_key %} collapsed{% endif %}">&#9660;</span>
+                    {{ month_data.label }} ({{ month_data.receipts|length }})
+                </td>
+            </tr>
+            {% if month_key == current_month_key %}
+            {% for rem in due_reminders %}
+            <tr class="inline-reminder" id="reminder-inline-{{ rem.id }}">
+                <td onclick="event.stopPropagation()">
+                    <input type="checkbox" class="recurring-checkbox" checked disabled title="Recurring">
+                </td>
+                <td>{{ rem.payment_date.day }} (expected)</td>
+                <td>{{ rem.company_name }}</td>
+                <td>
+                    {% if rem.category == 'leverantörsfaktura' %}
+                    <span class="badge badge-lev">Leverantör</span>
+                    {% else %}
+                    <span class="badge badge-annat">Annat</span>
+                    {% endif %}
+                </td>
+                <td colspan="2" style="text-align: center; color: var(--text-muted);">— pending —</td>
+                <td onclick="event.stopPropagation()">
+                    <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.id }})" title="Upload receipt">Upload</button>
+                    <input type="file" class="reminder-upload-input" id="reminder-file-inline-{{ rem.id }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.id }})">
+                    <button class="btn-done" onclick="dismissReminder({{ rem.id }})" title="Done for this month">Done</button>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+            {% for r in month_data.receipts %}
+            <tr onclick="window.location='/receipt/{{ r.id }}'" style="cursor:pointer" class="{% if r.id in fulfilled_receipt_ids %}fulfilled-receipt{% endif %}">
+                <td onclick="event.stopPropagation()">
+                    <input type="checkbox" class="recurring-checkbox" {% if r.is_recurring %}checked{% endif %} onchange="toggleRecurring({{ r.id }}, this)" title="Set as recurring monthly reminder">
+                </td>
+                <td>{{ r.payment_date or '-' }}</td>
+                <td>{{ r.company_name }}</td>
+                <td>
+                    {% if r.category == 'leverantörsfaktura' %}
+                    <span class="badge badge-lev">Leverantör</span>
+                    {% else %}
+                    <span class="badge badge-annat">Annat</span>
+                    {% endif %}
+                </td>
+                <td onclick="event.stopPropagation()">
+                    {% if r.dropbox_path %}
+                    <span class="status-ok" onclick="sendToDropbox({{ r.id }}, true)" style="cursor:pointer" title="Re-upload to Dropbox">✓</span>
+                    {% else %}
+                    <span class="status-pending" onclick="sendToDropbox({{ r.id }}, false)" style="cursor:pointer" title="Click to send to Dropbox">⏳</span>
+                    {% endif %}
+                </td>
+                <td onclick="event.stopPropagation()">
+                    {% if r.email_sent_at %}
+                    <span class="status-ok">✓</span>
+                    {% else %}
+                    <span class="status-pending" onclick="resendEmail({{ r.id }})" style="cursor:pointer" title="Click to send email">⏳</span>
+                    {% endif %}
+                </td>
+                <td onclick="event.stopPropagation()">
+                    <a href="/receipt/{{ r.id }}/edit" class="btn" style="padding: 4px 8px; font-size: 12px;">Edit</a>
+                    {% set atts = attachments_by_receipt[r.id] %}
+                    {% if atts|length > 0 %}
+                    <div class="file-dropdown" style="display: inline-block; position: relative;">
+                        <button class="btn" style="padding: 4px 8px; font-size: 12px;" title="View files" onclick="toggleDropdown(this)">👁 +{{ atts|length }}</button>
+                        <div class="file-dropdown-menu">
+                            <div class="file-dropdown-item" onclick="viewFile({{ r.id }})">
+                                📄 {{ r.stored_filename or 'Receipt' }}
+                            </div>
+                            {% for att in atts %}
+                            <div class="file-dropdown-item" onclick="viewAttachment({{ att.id }})">
+                                📎 {{ att.original_filename }}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% else %}
+                    <button onclick="viewFile({{ r.id }})" class="btn" style="padding: 4px 8px; font-size: 12px;" title="View PDF">👁</button>
+                    {% endif %}
+                    <button onclick="openFolder({{ r.id }})" class="btn" style="padding: 4px 8px; font-size: 12px;" title="Open folder">📁</button>
+                    <button onclick="deleteReceipt({{ r.id }})" class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;">Del</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        {% endfor %}
+    </table>
+
+    <!-- Pagination -->
+    {% set total_pages = (total / per_page)|round(0, 'ceil')|int %}
+    {% if total_pages > 1 %}
+    <div style="margin-top: 20px; text-align: center;">
+        {% if page > 1 %}
+        <a href="?page={{ page - 1 }}{% if category %}&category={{ category }}{% endif %}{% if company %}&company={{ company }}{% endif %}" class="btn">← Previous</a>
+        {% endif %}
+        <span style="margin: 0 15px;">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}{% if category %}&category={{ category }}{% endif %}{% if company %}&company={{ company }}{% endif %}" class="btn">Next →</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <p class="text-muted">No receipts found.</p>
+    {% endif %}
+</div>
+
+<script>
+let searchTimeout;
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        document.getElementById('filterForm').submit();
+    }, 300);
+}
+
+// Keep focus on search field after reload
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('companySearch');
+    if (searchInput.value) {
+        searchInput.focus();
+        searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    }
+});
+
+function sendToDropbox(id, force) {
+    const msg = force ? 'Re-upload to Dropbox?' : 'Send to Dropbox?';
+    if (confirm(msg)) {
+        const url = force ? '/receipt/' + id + '/dropbox?force=true' : '/receipt/' + id + '/dropbox';
+        fetch(url, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Dropbox failed: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => alert('Dropbox failed'));
+    }
+}
+
+function resendEmail(id) {
+    if (confirm('Send email to bookkeeper?')) {
+        fetch('/receipt/' + id + '/resend', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Email failed: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => alert('Email failed'));
+    }
+}
+
+function deleteReceipt(id) {
+    if (confirm('Delete this receipt from database? (Dropbox file will remain)')) {
+        fetch('/receipt/' + id, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Delete failed');
+                }
+            })
+            .catch(() => alert('Delete failed'));
+    }
+}
+
+function openFolder(id) {
+    fetch('/receipt/' + id + '/open-folder', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not open folder: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Could not open folder'));
+}
+
+function openStagingFolder() {
+    fetch('/open-staging-folder', { method: 'POST' })
+        .then(r => r.json())
+        .catch(() => alert('Could not open folder'));
+}
+
+function uploadAllToDropbox() {
+    if (!confirm('Upload all pending receipts to Dropbox?')) return;
+
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Uploading...';
+
+    fetch('/receipts/upload-all-dropbox', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                let msg = `Uploaded: ${data.uploaded}`;
+                if (data.failed > 0) {
+                    msg += `\nFailed: ${data.failed}`;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += '\n\nErrors:\n' + data.errors.join('\n');
+                    }
+                }
+                alert(msg);
+                if (data.uploaded > 0) {
+                    window.location.reload();
+                }
+            } else {
+                alert('Upload failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Upload failed'))
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '📤 Upload All to Dropbox';
+        });
+}
+
+function viewFile(id) {
+    fetch('/receipt/' + id + '/open-file', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not open file: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Could not open file'));
+}
+
+function viewAttachment(id) {
+    fetch('/attachment/' + id + '/open', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not open attachment: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Could not open attachment'));
+}
+
+function toggleMonth(headerRow) {
+    const tbody = headerRow.closest('tbody');
+    const icon = headerRow.querySelector('.toggle-icon');
+    tbody.classList.toggle('collapsed');
+    icon.classList.toggle('collapsed');
+}
+
+function toggleDropdown(btn) {
+    // Close all other dropdowns first
+    document.querySelectorAll('.file-dropdown-menu').forEach(menu => {
+        if (menu !== btn.nextElementSibling) {
+            menu.style.display = 'none';
+        }
+    });
+    // Toggle this dropdown
+    const menu = btn.nextElementSibling;
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.file-dropdown')) {
+        document.querySelectorAll('.file-dropdown-menu').forEach(menu => {
+            menu.style.display = 'none';
+        });
+    }
+});
+
+// Reminder functions
+function toggleReminderSection() {
+    const section = document.getElementById('reminderSection');
+    const icon = document.getElementById('reminderToggleIcon');
+    section.classList.toggle('collapsed');
+    icon.classList.toggle('collapsed');
+}
+
+function toggleRecurring(id, checkbox) {
+    fetch('/receipt/' + id + '/toggle-recurring', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                checkbox.checked = !checkbox.checked;
+                alert('Failed to toggle recurring');
+            }
+        })
+        .catch(() => {
+            checkbox.checked = !checkbox.checked;
+            alert('Failed to toggle recurring');
+        });
+}
+
+function dismissReminder(id) {
+    if (confirm('Mark this reminder as done for this month?')) {
+        fetch('/receipt/' + id + '/dismiss-reminder', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    // Remove from both top section and inline
+                    const topRow = document.getElementById('reminder-top-' + id);
+                    const inlineRow = document.getElementById('reminder-inline-' + id);
+                    if (topRow) topRow.remove();
+                    if (inlineRow) inlineRow.remove();
+
+                    // Check if any reminders left in top section
+                    const section = document.getElementById('reminderSection');
+                    if (section && section.querySelectorAll('.reminder-row').length === 0) {
+                        section.remove();
+                    }
+                } else {
+                    alert('Failed to dismiss reminder');
+                }
+            })
+            .catch(() => alert('Failed to dismiss reminder'));
+    }
+}
+
+function triggerReminderUpload(id) {
+    // Try both possible file inputs (top section and inline)
+    const input = document.getElementById('reminder-file-' + id) ||
+                  document.getElementById('reminder-file-inline-' + id);
+    if (input) input.click();
+}
+
+function submitReminderUpload(id) {
+    const input = document.getElementById('reminder-file-' + id) ||
+                  document.getElementById('reminder-file-inline-' + id);
+    if (!input || !input.files.length) return;
+
+    // Store context for the modal
+    window._reminderUploadId = id;
+    window._reminderUploadFile = input.files[0];
+
+    // Show backend choice modal
+    document.getElementById('reminderFileName').textContent = input.files[0].name;
+    document.getElementById('reminderBackendModal').style.display = 'flex';
+}
+
+function submitReminderWithBackend(backend) {
+    const id = window._reminderUploadId;
+    const file = window._reminderUploadFile;
+    if (!id || !file) return;
+
+    // Hide modal
+    document.getElementById('reminderBackendModal').style.display = 'none';
+
+    // Show loading overlay if running OCR
+    if (backend !== 'manual') {
+        document.getElementById('reminderLoadingOverlay').style.display = 'flex';
+    }
+
+    // Build and submit the form
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/receipt/' + id + '/upload-reminder';
+    form.enctype = 'multipart/form-data';
+    form.style.display = 'none';
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.name = 'file';
+    fileInput.style.display = 'none';
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+
+    const backendInput = document.createElement('input');
+    backendInput.type = 'hidden';
+    backendInput.name = 'backend';
+    backendInput.value = backend;
+
+    form.appendChild(fileInput);
+    form.appendChild(backendInput);
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+
+<!-- Backend choice modal for reminder uploads -->
+<div id="reminderBackendModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center;">
+    <div style="background:var(--card-bg); padding:30px; border-radius:12px; text-align:center; max-width:450px; width:90%;">
+        <h3 style="margin-bottom:8px;">How should we process this receipt?</h3>
+        <p class="text-muted" style="margin-bottom:20px;" id="reminderFileName"></p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+            <button class="btn btn-success" onclick="submitReminderWithBackend('')" style="width:100%;">Process Receipt (AI)</button>
+            <button class="btn" style="background:#10a37f; color:white; width:100%;" onclick="submitReminderWithBackend('gpt4')">Process with ChatGPT Vision</button>
+            <button class="btn" style="background:#6c757d; color:white; width:100%;" onclick="submitReminderWithBackend('manual')">Add Manually</button>
+            <button class="btn" style="background:transparent; color:var(--text-muted); border:1px solid var(--border-color); width:100%;" onclick="document.getElementById('reminderBackendModal').style.display='none'">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading overlay for reminder OCR -->
+<div id="reminderLoadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
+    <div style="background:var(--card-bg); padding:40px; border-radius:12px; text-align:center; max-width:400px;">
+        <div style="width:50px; height:50px; border:4px solid var(--border-color); border-top-color:#3498db; border-radius:50%; margin:0 auto 20px; animation:rspin 1s linear infinite;"></div>
+        <h3 style="margin-bottom:10px;">Processing Receipt...</h3>
+        <p class="text-muted">Running OCR extraction</p>
+        <p class="text-muted" style="font-size:0.8rem; margin-top:15px;">This may take 10-30 seconds</p>
+    </div>
+</div>
+<style>@keyframes rspin { to { transform: rotate(360deg); } }</style>
+
+{% endblock %}

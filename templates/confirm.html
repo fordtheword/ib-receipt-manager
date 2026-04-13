@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm Receipt - Receipt Manager{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>{% if manual %}Add Receipt Manually{% else %}Confirm Receipt Details{% endif %}</h2>
+
+    {% if not manual %}
+    <p class="text-muted" style="margin-bottom: 15px;">
+        OCR Confidence: {{ (confidence * 100)|int }}%
+        {% if ocr_cost > 0 %} | API Cost: ${{ "%.4f"|format(ocr_cost) }}{% else %} | Local (free){% endif %}
+        {% if current_backend %} | Backend: {{ current_backend }}{% endif %}
+        — Please verify and correct if needed
+    </p>
+    {% endif %}
+
+    <form action="/process" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="filename" value="{{ filename }}">
+        <input type="hidden" name="original_filename" value="{{ original_filename }}">
+        <input type="hidden" name="ocr_cost" value="{{ ocr_cost }}">
+        {% if reminder_source_id %}
+        <input type="hidden" name="reminder_source_id" value="{{ reminder_source_id }}">
+        {% endif %}
+
+        <div class="form-group">
+            <label for="payment_date">Payment Date</label>
+            <input type="date" id="payment_date" name="payment_date" value="{{ payment_date }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="company_name">Company Name</label>
+            <input type="text" id="company_name" name="company_name" value="{{ company_name }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="payment_handler">Payment Handler (optional)</label>
+            <input type="text" id="payment_handler" name="payment_handler" value="{{ payment_handler }}" placeholder="e.g., Klarna, Avarda">
+            <small class="text-muted">If paid via Klarna, Avarda, etc.</small>
+        </div>
+
+        <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+                <option value="leverantörsfaktura">Leverantörsfaktura</option>
+                <option value="annat" selected>Annat</option>
+            </select>
+            <script>
+                // Pre-fill category from reminder or remember last selection
+                {% if category_prefill %}
+                document.getElementById('category').value = '{{ category_prefill }}';
+                {% else %}
+                const savedCategory = localStorage.getItem('lastCategory');
+                if (savedCategory) {
+                    document.getElementById('category').value = savedCategory;
+                }
+                {% endif %}
+                document.getElementById('category').addEventListener('change', function() {
+                    localStorage.setItem('lastCategory', this.value);
+                });
+            </script>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Notes for Bookkeeper (optional)</label>
+            <textarea id="notes" name="notes" rows="3" placeholder="Add any message or instructions to include in the email..."></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Extra Attachments (optional)</label>
+            <div id="dropZone" class="drop-zone">
+                <p>Drag & drop extra files or <label for="extraFiles" style="color: #007bff; cursor: pointer; text-decoration: underline;">browse</label></p>
+                <input type="file" id="extraFiles" name="extra_files" multiple style="display: none;" accept=".pdf,.jpg,.jpeg,.png">
+            </div>
+            <ul id="fileList" class="attachment-list" style="margin-top: 10px;"></ul>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="submit" class="btn btn-success">Process Receipt</button>
+            <a href="/" class="btn btn-danger">Cancel</a>
+        </div>
+    </form>
+
+    {% if not manual and current_backend != 'gpt4' %}
+    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
+        <p class="text-muted" style="margin-bottom: 10px;">Wrong result? Try a different OCR backend:</p>
+        <form action="/retry-ocr" method="post" style="display: inline;" onsubmit="showGptLoading()">
+            <input type="hidden" name="filename" value="{{ filename }}">
+            <input type="hidden" name="original_filename" value="{{ original_filename }}">
+            <input type="hidden" name="backend" value="gpt4">
+            <button type="submit" id="gpt4Btn" class="btn" style="background: #10a37f;">Try with GPT-4</button>
+        </form>
+    </div>
+
+    <div id="gptLoadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
+        <div style="background:#1a1a2e; padding:40px; border-radius:12px; text-align:center; max-width:400px;">
+            <div class="spinner" style="width:50px; height:50px; border:4px solid #444; border-top-color:#10a37f; border-radius:50%; margin:0 auto 20px; animation:spin 1s linear infinite;"></div>
+            <h3 style="margin-bottom:10px; color:#fff;">Retrying with GPT-4...</h3>
+            <p class="text-muted" id="gptLoadingStatus">Sending image to OpenAI</p>
+            <p class="text-muted" style="font-size:0.8rem; margin-top:15px;">This may take 5-15 seconds</p>
+        </div>
+    </div>
+    <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+    <script>
+    function showGptLoading() {
+        document.getElementById('gptLoadingOverlay').style.display = 'flex';
+        const statusEl = document.getElementById('gptLoadingStatus');
+        const steps = ['Sending image to OpenAI...', 'GPT-4 analyzing receipt...', 'Extracting date and company...'];
+        let i = 0;
+        setInterval(() => {
+            statusEl.textContent = steps[i % steps.length];
+            i++;
+        }, 2500);
+    }
+    </script>
+    {% endif %}
+</div>
+
+{% if not manual %}
+<div class="card">
+    <h2>Extracted Text <button type="button" onclick="copyToNotes()" class="btn" style="font-size: 12px; padding: 4px 10px; margin-left: 10px;">Add to Notes</button></h2>
+    <div class="raw-text" id="rawText">{{ raw_text }}</div>
+</div>
+
+<script>
+function copyToNotes() {
+    const rawText = document.getElementById('rawText').innerText.trim();
+    const notesField = document.getElementById('notes');
+    if (notesField.value) {
+        notesField.value += '\n\n--- Extracted Text ---\n' + rawText;
+    } else {
+        notesField.value = rawText;
+    }
+    notesField.scrollIntoView({ behavior: 'smooth' });
+    notesField.focus();
+}
+</script>
+{% endif %}
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('extraFiles');
+const fileList = document.getElementById('fileList');
+const form = document.querySelector('form');
+
+// Create a DataTransfer to store files
+let selectedFiles = new DataTransfer();
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('drag-over');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', () => {
+    addFiles(fileInput.files);
+});
+
+function addFiles(files) {
+    for (const file of files) {
+        selectedFiles.items.add(file);
+    }
+    fileInput.files = selectedFiles.files;
+    updateFileList();
+}
+
+function removeFile(index) {
+    const newFiles = new DataTransfer();
+    for (let i = 0; i < selectedFiles.files.length; i++) {
+        if (i !== index) {
+            newFiles.items.add(selectedFiles.files[i]);
+        }
+    }
+    selectedFiles = newFiles;
+    fileInput.files = selectedFiles.files;
+    updateFileList();
+}
+
+function updateFileList() {
+    fileList.innerHTML = '';
+    for (let i = 0; i < selectedFiles.files.length; i++) {
+        const file = selectedFiles.files[i];
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${file.name}</span><button type="button" onclick="removeFile(${i})" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px;">×</button>`;
+        fileList.appendChild(li);
+    }
+}
+</script>
+{% endblock %}

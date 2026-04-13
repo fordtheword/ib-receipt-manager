@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Receipt #{{ receipt.id }} - Receipt Manager{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Edit Receipt #{{ receipt.id }}</h2>
+
+    <form action="/receipt/{{ receipt.id }}/edit" method="post">
+        <div class="form-group">
+            <label for="payment_date">Payment Date</label>
+            <input type="date" id="payment_date" name="payment_date" value="{{ receipt.payment_date }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="company_name">Company Name</label>
+            <input type="text" id="company_name" name="company_name" value="{{ receipt.company_name }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="payment_handler">Payment Handler (optional)</label>
+            <input type="text" id="payment_handler" name="payment_handler" value="{{ receipt.payment_handler or '' }}" placeholder="e.g., Klarna, Avarda">
+            <small class="text-muted">If paid via Klarna, Avarda, etc.</small>
+        </div>
+
+        <div class="form-group">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+                <option value="leverantörsfaktura" {% if receipt.category == 'leverantörsfaktura' %}selected{% endif %}>Leverantörsfaktura</option>
+                <option value="annat" {% if receipt.category == 'annat' %}selected{% endif %}>Annat</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Notes for Bookkeeper (optional)</label>
+            <textarea id="notes" name="notes" rows="3" placeholder="Add any message or instructions to include in the email...">{{ receipt.notes or '' }}</textarea>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-success">Save Changes</button>
+            <a href="/receipt/{{ receipt.id }}" class="btn">Cancel</a>
+        </div>
+    </form>
+
+    <!-- Extra Attachments Section -->
+    <div style="margin-top: 30px;">
+        <h3>Extra Attachments</h3>
+
+        {% if attachments %}
+        <ul class="attachment-list">
+            {% for att in attachments %}
+            <li>
+                <span onclick="viewAttachment({{ att.id }})" style="cursor: pointer; color: var(--link-color, #007bff); text-decoration: underline;" title="Click to open">📎 {{ att.original_filename }}</span>
+                <button onclick="viewAttachment({{ att.id }})" class="btn" style="padding: 2px 8px; font-size: 12px; margin-left: 10px;" title="View">👁</button>
+                <button onclick="deleteAttachment({{ att.id }})" class="btn btn-danger" style="padding: 2px 8px; font-size: 12px; margin-left: 5px;" title="Delete">×</button>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted">No extra attachments</p>
+        {% endif %}
+
+        <div id="dropZone" class="drop-zone">
+            <p>Drag & drop files here or <label for="fileInput" style="color: #007bff; cursor: pointer; text-decoration: underline;">browse</label></p>
+            <input type="file" id="fileInput" multiple style="display: none;" accept=".pdf,.jpg,.jpeg,.png">
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <button onclick="openFolder({{ receipt.id }})" class="btn">📁 Open Folder</button>
+
+        {% if not receipt.dropbox_path %}
+        <button onclick="sendToDropbox({{ receipt.id }}, false)" class="btn btn-warning">Send to Dropbox</button>
+        {% else %}
+        <span class="status-ok">✓ In Dropbox</span>
+        <button onclick="sendToDropbox({{ receipt.id }}, true)" class="btn" style="background:#e67e22;color:white;" title="Re-upload to Dropbox">🔄 Re-upload</button>
+        {% endif %}
+
+        {% if receipt.email_sent_at %}
+        <button onclick="resendEmail({{ receipt.id }})" class="btn btn-warning">Send Email Again</button>
+        <span class="text-muted">Last sent: {{ receipt.email_sent_at }}</span>
+        {% else %}
+        <button onclick="resendEmail({{ receipt.id }})" class="btn btn-warning">Send Email</button>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+const receiptId = {{ receipt.id }};
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+});
+
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('drag-over');
+});
+
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    handleFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', () => {
+    handleFiles(fileInput.files);
+});
+
+function handleFiles(files) {
+    for (const file of files) {
+        uploadFile(file);
+    }
+}
+
+function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/receipt/' + receiptId + '/attachments', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Upload failed: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(() => alert('Upload failed'));
+}
+
+function viewAttachment(id) {
+    fetch('/attachment/' + id + '/open', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not open attachment: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Could not open attachment'));
+}
+
+function deleteAttachment(id) {
+    if (confirm('Delete this attachment?')) {
+        fetch('/attachment/' + id, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert('Delete failed');
+                }
+            })
+            .catch(() => alert('Delete failed'));
+    }
+}
+
+function sendToDropbox(id, force) {
+    const msg = force ? 'Re-upload to Dropbox?' : 'Send to Dropbox?';
+    if (confirm(msg)) {
+        const url = force ? '/receipt/' + id + '/dropbox?force=true' : '/receipt/' + id + '/dropbox';
+        fetch(url, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    alert(force ? 'Re-uploaded to Dropbox!' : 'Sent to Dropbox!');
+                    window.location.reload();
+                } else {
+                    alert('Dropbox failed: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => alert('Dropbox failed'));
+    }
+}
+
+function resendEmail(id) {
+    if (confirm('Send email to bookkeeper?')) {
+        fetch('/receipt/' + id + '/resend', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Email sent!');
+                    window.location.reload();
+                } else {
+                    alert('Email failed: ' + (data.error || 'Unknown error'));
+                }
+            })
+            .catch(() => alert('Email failed'));
+    }
+}
+
+function openFolder(id) {
+    fetch('/receipt/' + id + '/open-folder', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert('Could not open folder: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(() => alert('Could not open folder'));
+}
+</script>
+{% endblock %}

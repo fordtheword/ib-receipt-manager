@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <h2>Upload Receipt</h2>
+    <form action="/upload" method="post" enctype="multipart/form-data" id="uploadForm">
+        <input type="hidden" name="backend" id="backendInput" value="">
+        <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <p><strong>Drop PDF or image here</strong></p>
+            <p class="text-muted">or click to select file</p>
+            <input type="file" name="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+        </div>
+        <p id="fileName" style="margin-top: 10px; text-align: center;"></p>
+        <div id="buttonContainer" style="display:none; text-align:center; margin-top:10px; gap:10px; justify-content:center; flex-wrap:wrap;"></div>
+    </form>
+</div>
+
+{% if receipts %}
+<div class="card">
+    <h2>Recent Receipts</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Company</th>
+                <th>Category</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in receipts %}
+            <tr onclick="window.location='/receipt/{{ r.id }}'" style="cursor:pointer">
+                <td>{{ r.payment_date or '-' }}</td>
+                <td>{{ r.company_name }}</td>
+                <td>
+                    {% if r.category == 'leverantörsfaktura' %}
+                    <span class="badge badge-lev">Leverantör</span>
+                    {% else %}
+                    <span class="badge badge-annat">Annat</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if r.email_sent_at %}
+                    <span class="status-ok">✓ Sent</span>
+                    {% else %}
+                    <span class="status-pending">⏳ Pending</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p style="margin-top: 15px; text-align: center;">
+        <a href="/receipts" class="btn">View All Receipts</a>
+    </p>
+</div>
+{% endif %}
+
+<div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
+    <div style="background:white; padding:40px; border-radius:12px; text-align:center; max-width:400px;">
+        <div class="spinner" style="width:50px; height:50px; border:4px solid #ddd; border-top-color:#3498db; border-radius:50%; margin:0 auto 20px; animation:spin 1s linear infinite;"></div>
+        <h3 style="margin-bottom:10px;">Processing Receipt...</h3>
+        <p class="text-muted" id="loadingStatus">Running OCR extraction</p>
+        <p class="text-muted" style="font-size:0.8rem; margin-top:15px;">This may take 10-30 seconds</p>
+    </div>
+</div>
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const uploadForm = document.getElementById('uploadForm');
+const fileName = document.getElementById('fileName');
+const loadingOverlay = document.getElementById('loadingOverlay');
+
+['dragenter', 'dragover'].forEach(e => {
+    dropZone.addEventListener(e, () => dropZone.classList.add('dragover'));
+});
+['dragleave', 'drop'].forEach(e => {
+    dropZone.addEventListener(e, () => dropZone.classList.remove('dragover'));
+});
+
+dropZone.addEventListener('dragover', e => e.preventDefault());
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    fileInput.files = e.dataTransfer.files;
+    handleFile();
+});
+
+fileInput.addEventListener('change', handleFile);
+
+function handleFile() {
+    if (fileInput.files.length > 0) {
+        fileName.textContent = 'Selected: ' + fileInput.files[0].name;
+        const buttonContainer = document.getElementById('buttonContainer');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.innerHTML = `
+            <button type="button" class="btn btn-success" onclick="submitWithBackend('')">Process Receipt</button>
+            <button type="button" class="btn" style="background:#10a37f;color:white;" onclick="submitWithBackend('gpt4')">Process with ChatGPT Vision</button>
+            <button type="button" class="btn" style="background:#6c757d;color:white;" onclick="submitWithBackend('manual')">Add Manually</button>
+        `;
+    }
+}
+
+function submitWithBackend(backend) {
+    document.getElementById('backendInput').value = backend;
+    showLoading();
+    document.getElementById('uploadForm').submit();
+}
+
+function showLoading() {
+    loadingOverlay.style.display = 'flex';
+    const statusEl = document.getElementById('loadingStatus');
+    const steps = ['Converting PDF to image...', 'Running OCR extraction...', 'Parsing receipt data...'];
+    let i = 0;
+    setInterval(() => {
+        statusEl.textContent = steps[i % steps.length];
+        i++;
+    }, 3000);
+}
+</script>
+{% endblock %}

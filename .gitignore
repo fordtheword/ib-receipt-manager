@@ -1,0 +1,55 @@
+# Environment
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads (temporary)
+uploads/
+temp/
+
+# Test files
+test_*.pdf
+test_*.jpg
+test_*.png
+
+# Receipt data (user files)
+receipt drops/
+screenshots/
+*.db.backup*
+PROJEKT-STATUS.md
+PUBLIC-RELEASE-NOTES.md
+public-staging/
+
+# Claude Code
+.claude/
+
+# Windows artifacts
+nul
+
+# Docs
+*.docx
