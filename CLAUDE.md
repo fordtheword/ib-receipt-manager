@@ -13,7 +13,7 @@ Automate the manual workflow of: creating Dropbox folders, renaming files, compo
 - **Frontend**: HTML/CSS/JS (Jinja2 templates)
 - **File Storage**: Local Dropbox folder (synced by Dropbox desktop client)
 - **Email**: SMTP (Gmail)
-- **OCR/AI**: GPT-4 Vision, Claude Vision, local LLM (Qwen2.5-VL), EasyOCR, Tesseract
+- **OCR/AI**: GPT-4 Vision, Claude Vision, local LLM (Qwen2.5-VL), Gemma 4 via self-hosted OpenAI-compatible endpoint, EasyOCR, Tesseract
 - **PDF**: PyMuPDF, pdf2image
 
 ## Project Structure

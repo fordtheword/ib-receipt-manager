@@ -13,7 +13,7 @@ No more manually creating folders, renaming files, writing emails, and attaching
 
 ## Features
 
-- **Multiple OCR/AI backends** — GPT-4 Vision, Claude Vision, EasyOCR, Tesseract (+ optional local LLM)
+- **Multiple OCR/AI backends** — GPT-4 Vision, Claude Vision, EasyOCR, Tesseract (+ optional local LLM, + optional Gemma 4 over a self-hosted endpoint)
 - **Smart date parsing** — prioritizes payment due dates, handles Swedish date formats
 - **Payment handler detection** — identifies Klarna, Swish, PayPal, and others
 - **Dropbox sync** — organized folder structure via Dropbox desktop client
@@ -82,6 +82,7 @@ OCR_BACKEND=auto
 | `easyocr` | Free | Good | None (installed with pip) |
 | `tesseract` | Free | Decent | Tesseract installed on system |
 | `local` | Free | Good | Local GGUF model files (advanced, see below) |
+| `gemma` | Free | Great | Gemma 4 served via an OpenAI-compatible HTTP endpoint (e.g. Docker Model Runner on a LAN/Tailscale host) |
 | `auto` | Varies | Best available | Uses first available: GPT-4 > Claude > local > EasyOCR |
 
 **Recommended:** Start with `gpt4` or `claude` for the best experience. The API cost is minimal (roughly 1 cent per receipt). Set your API key:
@@ -146,6 +147,17 @@ LOCAL_VISION_MMPROJ=C:\path\to\mmproj-qwen2.5-vl-7b.gguf
 
 Building llama-cpp-python with GPU support requires CUDA. See `build_llama_cuda.bat` for a helper script.
 
+#### Gemma 4 via a self-hosted endpoint (optional)
+
+If you have Gemma 4 running behind an OpenAI-compatible HTTP endpoint — for example via [Docker Model Runner](https://github.com/docker/model-runner) on a separate machine reachable over LAN or Tailscale — point the app at it:
+
+```env
+GEMMA_API_BASE=http://<host>:12434/engines/llama.cpp/v1
+GEMMA_MODEL=ai/gemma4:E4B
+```
+
+When `GEMMA_API_BASE` is set, a "Process with Gemma 4" button appears alongside the other backends. Inference is free (you're hosting the model yourself) but slower than the cloud APIs — expect 30–60 s per receipt on Apple Silicon CPU/Metal.
+
 ### 3. Run
 
 ```bash
@@ -204,7 +216,7 @@ Visit `/settings` to configure:
 | Backend | Python 3.11+, FastAPI |
 | Frontend | Jinja2 templates, vanilla JS |
 | Database | SQLite |
-| OCR | GPT-4 Vision, Claude Vision, EasyOCR, Tesseract, Qwen2.5-VL (optional) |
+| OCR | GPT-4 Vision, Claude Vision, EasyOCR, Tesseract, Qwen2.5-VL (optional), Gemma 4 (optional, via self-hosted endpoint) |
 | Email | SMTP (Gmail) |
 | Storage | Local filesystem + Dropbox sync |
 

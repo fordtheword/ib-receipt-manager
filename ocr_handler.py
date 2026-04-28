@@ -309,6 +309,7 @@ class GPT4VisionOCR(OCRBackend):
 
         from openai import OpenAI
         self.client = OpenAI(api_key=config.OPENAI_API_KEY)
+        self.model = "gpt-4o"
 
     def extract_text(self, image_path: Path) -> str:
         import base64
@@ -327,7 +328,7 @@ class GPT4VisionOCR(OCRBackend):
         media_type = media_types.get(suffix, 'image/jpeg')
 
         response = self.client.chat.completions.create(
-            model="gpt-4o",
+            model=self.model,
             max_tokens=1024,
             messages=[{
                 "role": "user",
@@ -404,14 +405,19 @@ For the TOTAL:
 - English: total, amount due, grand total
 - Include currency (SEK, kr, $, €)
 
+LANGUAGE RULE FOR raw_text:
+- Detect the language of the receipt itself.
+- Write raw_text in THAT SAME LANGUAGE. If the receipt is Swedish, raw_text MUST be Swedish. If German, German. Never translate.
+- raw_text should be a short summary (1-2 sentences) of what the receipt is for.
+
 Return JSON only, no other text:
-{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "payment_handler": null, "total": "123.45 SEK", "raw_text": "brief summary"}
+{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "payment_handler": null, "total": "123.45 SEK", "raw_text": "summary in receipt's language"}
 
 If you can't find a field, use null."""
         })
 
         response = self.client.chat.completions.create(
-            model="gpt-4o",
+            model=self.model,
             max_tokens=1024,
             messages=[{
                 "role": "user",
@@ -454,6 +460,25 @@ If you can't find a field, use null."""
             result = super().extract_receipt_data(image_paths)
             result.ocr_cost = ocr_cost
             return result
+
+
+class Gemma4VisionOCR(GPT4VisionOCR):
+    """Gemma 4 via Docker Model Runner (OpenAI-compatible, free — runs on a LAN/Tailscale host)."""
+
+    def __init__(self):
+        if not config.GEMMA_API_BASE:
+            raise ValueError("GEMMA_API_BASE not set in .env")
+
+        from openai import OpenAI
+        # DMR doesn't require a real key, but the OpenAI SDK insists on one being present.
+        self.client = OpenAI(api_key="not-needed", base_url=config.GEMMA_API_BASE)
+        self.model = config.GEMMA_MODEL
+
+    def extract_receipt_data(self, image_paths: list[Path]) -> ReceiptData:
+        result = super().extract_receipt_data(image_paths)
+        # Local inference is free — never report a cost.
+        result.ocr_cost = 0.0
+        return result
 
 
 class LocalVisionOCR(OCRBackend):
@@ -811,6 +836,7 @@ def get_ocr_backend(backend: str | None = None) -> OCRBackend:
         'claude': ClaudeVisionOCR,
         'gpt4': GPT4VisionOCR,
         'local': LocalVisionOCR,
+        'gemma': Gemma4VisionOCR,
     }
 
     if backend not in backends:

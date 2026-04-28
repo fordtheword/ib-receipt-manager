@@ -81,15 +81,25 @@
         </div>
     </form>
 
-    {% if not manual and current_backend != 'gpt4' %}
+    {% if not manual and (current_backend != 'gpt4' or (gemma_available and current_backend != 'gemma')) %}
     <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #444;">
         <p class="text-muted" style="margin-bottom: 10px;">Wrong result? Try a different OCR backend:</p>
+        {% if current_backend != 'gpt4' %}
         <form action="/retry-ocr" method="post" style="display: inline;" onsubmit="showGptLoading()">
             <input type="hidden" name="filename" value="{{ filename }}">
             <input type="hidden" name="original_filename" value="{{ original_filename }}">
             <input type="hidden" name="backend" value="gpt4">
             <button type="submit" id="gpt4Btn" class="btn" style="background: #10a37f;">Try with GPT-4</button>
         </form>
+        {% endif %}
+        {% if gemma_available and current_backend != 'gemma' %}
+        <form action="/retry-ocr" method="post" style="display: inline;" onsubmit="showGptLoading()">
+            <input type="hidden" name="filename" value="{{ filename }}">
+            <input type="hidden" name="original_filename" value="{{ original_filename }}">
+            <input type="hidden" name="backend" value="gemma">
+            <button type="submit" class="btn" style="background: #4285f4;">Try with Gemma 4</button>
+        </form>
+        {% endif %}
     </div>
 
     <div id="gptLoadingOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">

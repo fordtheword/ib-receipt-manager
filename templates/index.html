@@ -99,6 +99,7 @@ function handleFile() {
         buttonContainer.innerHTML = `
             <button type="button" class="btn btn-success" onclick="submitWithBackend('')">Process Receipt</button>
             <button type="button" class="btn" style="background:#10a37f;color:white;" onclick="submitWithBackend('gpt4')">Process with ChatGPT Vision</button>
+            {% if config_status.ocr_gemma %}<button type="button" class="btn" style="background:#4285f4;color:white;" onclick="submitWithBackend('gemma')">Process with Gemma 4</button>{% endif %}
             <button type="button" class="btn" style="background:#6c757d;color:white;" onclick="submitWithBackend('manual')">Add Manually</button>
         `;
     }

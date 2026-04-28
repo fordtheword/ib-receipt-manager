@@ -93,6 +93,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
             "ocr_cost": 0,
             "current_backend": "",
             "manual": True,
+            "gemma_available": bool(config.GEMMA_API_BASE),
         })
 
     # Run OCR extraction
@@ -118,6 +119,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         "ocr_cost": result.ocr_cost,
         "current_backend": config.OCR_BACKEND,
         "manual": False,
+        "gemma_available": bool(config.GEMMA_API_BASE),
     })
 
 
@@ -153,6 +155,7 @@ async def retry_ocr(request: Request, filename: str = Form(...), backend: str = 
         "confidence": result.confidence,
         "ocr_cost": result.ocr_cost,
         "current_backend": backend,
+        "gemma_available": bool(config.GEMMA_API_BASE),
     })
 
 
@@ -556,6 +559,7 @@ async def list_receipts(
         "due_reminders": due_reminders,
         "fulfilled_source_ids": fulfilled_source_ids,
         "fulfilled_receipt_ids": fulfilled_receipt_ids,
+        "config_status": config.validate_config(),
     })
 
 
@@ -1146,6 +1150,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
             "ocr_cost": 0,
             "reminder_source_id": receipt.id,
             "category_prefill": receipt.category,
+            "gemma_available": bool(config.GEMMA_API_BASE),
         })
 
     # Run OCR extraction
@@ -1172,6 +1177,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
         "manual": False,
         "reminder_source_id": receipt.id,
         "category_prefill": receipt.category,
+        "gemma_available": bool(config.GEMMA_API_BASE),
     })
 
 

@@ -13,7 +13,7 @@ RECEIPT_DROPS_DIR = BASE_DIR / "receipt drops"
 DATABASE_PATH = BASE_DIR / "receipts.db"
 
 # OCR Configuration
-# Options: "tesseract", "easyocr", "claude", "gpt4", "local", "auto"
+# Options: "tesseract", "easyocr", "claude", "gpt4", "local", "gemma", "auto"
 OCR_BACKEND = os.getenv("OCR_BACKEND", "auto")
 
 # Anthropic (for Claude Vision OCR)
@@ -25,6 +25,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 # Local vision LLM (llama-cpp-python with Qwen2.5-VL)
 LOCAL_VISION_MODEL = os.getenv("LOCAL_VISION_MODEL", "")
 LOCAL_VISION_MMPROJ = os.getenv("LOCAL_VISION_MMPROJ", "")
+
+# Gemma 4 via Docker Model Runner (OpenAI-compatible HTTP endpoint, e.g. on a Mac Mini)
+GEMMA_API_BASE = os.getenv("GEMMA_API_BASE", "")
+GEMMA_MODEL = os.getenv("GEMMA_MODEL", "ai/gemma4:E4B")
 
 # Dropbox (local folder - synced by Dropbox desktop client)
 DROPBOX_LOCAL_PATH = Path(os.getenv("DROPBOX_LOCAL_PATH", ""))
@@ -63,6 +67,7 @@ def validate_config() -> dict[str, bool]:
         "ocr_claude": bool(ANTHROPIC_API_KEY),
         "ocr_gpt4": bool(OPENAI_API_KEY),
         "ocr_local": bool(LOCAL_VISION_MODEL and LOCAL_VISION_MMPROJ),
+        "ocr_gemma": bool(GEMMA_API_BASE),
         "dropbox": DROPBOX_LOCAL_PATH.exists(),
         "email": bool(SMTP_USERNAME and SMTP_PASSWORD),
     }
