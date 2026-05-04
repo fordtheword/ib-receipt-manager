@@ -132,6 +132,18 @@ def init_db():
             value TEXT
         )
     """)
+
+    # Company aliases: collapse OCR variations onto a single canonical key so
+    # 'Google' and 'Google Cloud EMEA Limited' (or 'Apple' and 'Apple Distribution
+    # International Ltd.') can be treated as the same vendor for reminder matching.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS company_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alias TEXT NOT NULL UNIQUE,
+            canonical TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -450,41 +462,206 @@ class ReminderDismissal:
     created_at: datetime | None = None
 
 
-def get_due_reminders(target_date: date | None = None) -> list[Receipt]:
-    """Get recurring receipts whose reminder day has been reached this month.
+def _basic_normalize(name: str | None) -> str:
+    if not name:
+        return ""
+    return name.split(",", 1)[0].strip().lower()
 
-    A reminder is due when:
-    - is_recurring is enabled
-    - today >= the day-of-month from payment_date (clamped to last day of current month)
-    - no dismissal exists for this year-month
+
+def _normalize_company(name: str | None, *, aliases: dict[str, str] | None = None) -> str:
+    """Canonical key for matching company names across receipts.
+
+    Step 1: take the text before the first comma, lowercase/strip it.
+        'Anthropic, PBC, San Fransisco' -> 'anthropic'
+        'Apple Distribution International Ltd.' -> 'apple distribution international ltd.'
+    Step 2: consult the company_aliases table — if the result matches an alias,
+    return that alias's canonical instead. Lets the user collapse OCR variants
+    (e.g. 'Apple Distribution International Ltd.' -> 'apple') onto one key.
+    """
+    base = _basic_normalize(name)
+    if not base:
+        return ""
+    if aliases is None:
+        aliases = list_alias_map()
+    return aliases.get(base, base)
+
+
+def find_recurring_by_canonical(company_name: str | None, *, exclude_id: int | None = None) -> list[dict]:
+    """Return any other recurring receipts whose canonical name (after aliases)
+    matches the given company name. Used to warn before toggling a duplicate
+    recurring source on the same vendor.
+    """
+    target = _normalize_company(company_name)
+    if not target:
+        return []
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT id, payment_date, company_name FROM receipts WHERE is_recurring=1"
+    ).fetchall()
+    conn.close()
+    aliases = list_alias_map()
+    matches = []
+    for r in rows:
+        if exclude_id is not None and r["id"] == exclude_id:
+            continue
+        if _normalize_company(r["company_name"], aliases=aliases) == target:
+            matches.append(dict(r))
+    return matches
+
+
+def list_alias_map() -> dict[str, str]:
+    """{normalized_alias: normalized_canonical} for all configured aliases."""
+    conn = get_connection()
+    rows = conn.execute("SELECT alias, canonical FROM company_aliases").fetchall()
+    conn.close()
+    return {r["alias"]: r["canonical"] for r in rows}
+
+
+def list_aliases() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM company_aliases ORDER BY alias").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def add_alias(alias: str, canonical: str) -> bool:
+    a = _basic_normalize(alias)
+    c = _basic_normalize(canonical)
+    if not a or not c:
+        return False
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO company_aliases (alias, canonical) VALUES (?, ?)",
+            (a, c),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_alias(alias_id: int) -> None:
+    conn = get_connection()
+    conn.execute("DELETE FROM company_aliases WHERE id=?", (alias_id,))
+    conn.commit()
+    conn.close()
+
+
+@dataclass
+class DueReminder:
+    """A single pending recurring-reminder instance for a specific month."""
+    receipt: Receipt
+    year_month: str       # e.g. "2026-04"
+    expected_date: date   # day-of-month from source, clamped to last day of year_month
+    display_name: str = ""  # alias-resolved label; falls back to receipt.company_name
+
+
+def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
+    """Get every pending recurring-reminder instance up to and including target month.
+
+    A recurring reminder fires every month from the month AFTER the source
+    receipt's payment_date onward. For each such month we yield an instance if:
+    - the reminder day (source day-of-month, clamped to that month's last day)
+      has been reached or passed by target_date, AND
+    - no dismissal exists for that (receipt, year_month).
+
+    Missed/unfulfilled instances from prior months remain pending — they are
+    not silently consumed when the calendar rolls over.
     """
     import calendar
     if target_date is None:
         target_date = date.today()
 
-    year_month = target_date.strftime("%Y-%m")
-    last_day = calendar.monthrange(target_date.year, target_date.month)[1]
+    target_ym = target_date.strftime("%Y-%m")
 
     conn = get_connection()
     rows = conn.execute("""
-        SELECT r.* FROM receipts r
-        WHERE r.is_recurring = 1
-        AND r.payment_date IS NOT NULL
-        AND strftime('%Y-%m', r.payment_date) < ?
-        AND NOT EXISTS (
-            SELECT 1 FROM reminder_dismissals rd
-            WHERE rd.receipt_id = r.id AND rd.year_month = ?
-        )
-    """, (year_month, year_month)).fetchall()
+        SELECT * FROM receipts
+        WHERE is_recurring = 1
+        AND payment_date IS NOT NULL
+        AND strftime('%Y-%m', payment_date) < ?
+    """, (target_ym,)).fetchall()
+
+    dismissed_rows = conn.execute("""
+        SELECT receipt_id, year_month, fulfilled_receipt_id FROM reminder_dismissals
+    """).fetchall()
+
+    # Implicit fulfillment: if any receipt exists with the same (normalized)
+    # company name in the reminder's target month, treat that month as covered
+    # — even if it was uploaded via drag-drop instead of the reminder flow.
+    fulfilling_rows = conn.execute("""
+        SELECT id, company_name, strftime('%Y-%m', payment_date) AS ym
+        FROM receipts
+        WHERE payment_date IS NOT NULL AND company_name IS NOT NULL
+    """).fetchall()
     conn.close()
 
-    results = []
+    dismissed = {(d['receipt_id'], d['year_month']) for d in dismissed_rows}
+    # Receipts already claimed as fulfillment by an explicit dismissal — they
+    # can't double-count as an implicit slot for another duplicate source.
+    already_claimed = {d['fulfilled_receipt_id'] for d in dismissed_rows if d['fulfilled_receipt_id']}
+
+    aliases = list_alias_map()
+
+    receipts_by_company_month: dict[tuple[str, str], set[int]] = {}
+    for fr in fulfilling_rows:
+        norm = _normalize_company(fr['company_name'], aliases=aliases)
+        if not norm:
+            continue
+        receipts_by_company_month.setdefault((norm, fr['ym']), set()).add(fr['id'])
+
+    # Available implicit-fulfillment slots per (canonical_company, year_month).
+    # Each upload covers ONE pending reminder; duplicate twin sources need
+    # multiple uploads to be cleared.
+    available_slots: dict[tuple[str, str], int] = {
+        key: len(ids - already_claimed)
+        for key, ids in receipts_by_company_month.items()
+    }
+
+    results: list[DueReminder] = []
     for row in rows:
         receipt = _row_to_receipt(row)
-        # Clamp day to last day of current month (handles 31st in 30-day months, Feb, etc.)
-        reminder_day = min(receipt.payment_date.day, last_day)
-        if target_date.day >= reminder_day:
-            results.append(receipt)
+        cname = _normalize_company(receipt.company_name, aliases=aliases)
+        # Walk from the month AFTER the source month up to target month.
+        year, month = receipt.payment_date.year, receipt.payment_date.month
+        month += 1
+        if month > 12:
+            year += 1
+            month = 1
+        while (year, month) <= (target_date.year, target_date.month):
+            last_day = calendar.monthrange(year, month)[1]
+            reminder_day = min(receipt.payment_date.day, last_day)
+            ym = f"{year:04d}-{month:02d}"
+            is_due = (year, month) < (target_date.year, target_date.month) or \
+                     ((year, month) == (target_date.year, target_date.month) and target_date.day >= reminder_day)
+            explicitly_dismissed = (receipt.id, ym) in dismissed
+            # Implicit fulfillment: claim a slot if one is still available.
+            slot_key = (cname, ym)
+            implicitly_fulfilled = False
+            if not explicitly_dismissed and available_slots.get(slot_key, 0) > 0:
+                available_slots[slot_key] -= 1
+                implicitly_fulfilled = True
+            if is_due and not explicitly_dismissed and not implicitly_fulfilled:
+                # If an alias maps this company onto a different canonical, use
+                # that as the display label so the reminder list reads in the
+                # user's preferred terms (e.g. 'youtube premium' instead of
+                # 'Google Commerce Limited').
+                base = _basic_normalize(receipt.company_name)
+                canonical = aliases.get(base, base)
+                display_name = canonical.title() if canonical != base else (receipt.company_name or "")
+                results.append(DueReminder(
+                    receipt=receipt,
+                    year_month=ym,
+                    expected_date=date(year, month, reminder_day),
+                    display_name=display_name,
+                ))
+            month += 1
+            if month > 12:
+                year += 1
+                month = 1
+    # Oldest pending first — those need attention more than recent ones.
+    results.sort(key=lambda d: (d.year_month, d.receipt.id or 0))
     return results
 
 

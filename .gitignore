@@ -44,6 +44,8 @@ screenshots/
 PROJEKT-STATUS.md
 PUBLIC-RELEASE-NOTES.md
 public-staging/
+# Year-named staging folders (auto-created by the app for each receipt)
+20[0-9][0-9]/
 
 # Claude Code
 .claude/

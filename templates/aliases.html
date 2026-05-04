@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Company Aliases - Receipt Manager{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2>Company Aliases</h2>
+    <p class="text-muted" style="margin-bottom: 20px;">
+        Collapse OCR variations onto a single canonical name so reminders match correctly.
+        Example: alias <code>apple distribution international ltd.</code> &rarr; canonical <code>apple</code>
+        means a receipt OCR'd as &ldquo;Apple Distribution International Ltd.&rdquo; will be treated as
+        the same vendor as &ldquo;Apple&rdquo; for reminder fulfillment.
+    </p>
+    <p class="text-muted" style="margin-bottom: 20px;">
+        Names are stored normalized (lowercase, trimmed, text before the first comma).
+    </p>
+
+    <form action="/aliases" method="post" style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; align-items: flex-end;">
+        <div style="flex: 1; min-width: 240px;">
+            <label for="alias">Alias (the OCR'd name)</label>
+            <input type="text" id="alias" name="alias" required placeholder="apple distribution international ltd.">
+        </div>
+        <div style="flex: 1; min-width: 240px;">
+            <label for="canonical">Canonical (the preferred name)</label>
+            <input type="text" id="canonical" name="canonical" required placeholder="apple">
+        </div>
+        <button type="submit" class="btn btn-success">Add alias</button>
+    </form>
+
+    {% if aliases %}
+    <table>
+        <thead>
+            <tr>
+                <th>Alias</th>
+                <th>Canonical</th>
+                <th>Created</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in aliases %}
+            <tr>
+                <td><code>{{ a.alias }}</code></td>
+                <td><code>{{ a.canonical }}</code></td>
+                <td class="text-muted">{{ a.created_at }}</td>
+                <td>
+                    <form action="/aliases/{{ a.id }}/delete" method="post" style="display:inline;"
+                          onsubmit="return confirm('Delete alias {{ a.alias }} → {{ a.canonical }}?');">
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No aliases configured yet.</p>
+    {% endif %}
+
+    <div style="margin-top: 25px;">
+        <a href="/" class="btn">Back</a>
+    </div>
+</div>
+{% endblock %}

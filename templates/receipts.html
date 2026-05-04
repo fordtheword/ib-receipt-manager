@@ -180,6 +180,7 @@ td:last-child, th:last-child {
         {% endif %}
         <button onclick="openStagingFolder()" class="btn" title="Open local staging folder">📁 Open Folder</button>
         <button onclick="uploadAllToDropbox()" class="btn btn-warning" title="Upload all pending to Dropbox">📤 Upload All to Dropbox</button>
+        <a href="/aliases" class="btn" title="Manage company name aliases">🔗 Aliases</a>
     </form>
 
     {% if due_reminders|length > 0 %}
@@ -187,7 +188,7 @@ td:last-child, th:last-child {
         <div class="reminder-header" onclick="toggleReminderSection()">
             <span class="pulse-dot"></span>
             <span class="toggle-icon" id="reminderToggleIcon">&#9660;</span>
-            Reminders ({{ due_reminders|length }}) — Recurring receipts due this month
+            Reminders ({{ due_reminders|length }}) — Recurring receipts pending
         </div>
         <div class="reminder-body">
             <table>
@@ -201,20 +202,21 @@ td:last-child, th:last-child {
                 </thead>
                 <tbody>
                     {% for rem in due_reminders %}
-                    <tr class="reminder-row" id="reminder-top-{{ rem.id }}">
-                        <td>{{ rem.payment_date.day }}</td>
-                        <td>{{ rem.company_name }}</td>
+                    <tr class="reminder-row" id="reminder-top-{{ rem.receipt.id }}-{{ rem.year_month }}">
+                        <td>{{ rem.expected_date.isoformat() }}</td>
+                        <td>{{ rem.display_name or rem.receipt.company_name }}</td>
                         <td>
-                            {% if rem.category == 'leverantörsfaktura' %}
+                            {% if rem.receipt.category == 'leverantörsfaktura' %}
                             <span class="badge badge-lev">Leverantör</span>
                             {% else %}
                             <span class="badge badge-annat">Annat</span>
                             {% endif %}
                         </td>
                         <td>
-                            <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.id }})" title="Upload receipt for this reminder">Upload</button>
-                            <input type="file" class="reminder-upload-input" id="reminder-file-{{ rem.id }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.id }})">
-                            <button class="btn-done" onclick="dismissReminder({{ rem.id }})" title="Mark as done for this month">Done</button>
+                            <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.receipt.id }}, '{{ rem.year_month }}')" title="Upload receipt for this reminder">Upload</button>
+                            <input type="file" class="reminder-upload-input" id="reminder-file-{{ rem.receipt.id }}-{{ rem.year_month }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.receipt.id }}, '{{ rem.year_month }}')">
+                            <button class="btn-done" onclick="dismissReminder({{ rem.receipt.id }}, '{{ rem.year_month }}')" title="Mark as done for {{ rem.year_month }}">Done</button>
+                            <button class="btn btn-danger" onclick="stopRecurring({{ rem.receipt.id }})" title="Stop this recurring reminder entirely">Stop</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -245,16 +247,16 @@ td:last-child, th:last-child {
                     {{ month_data.label }} ({{ month_data.receipts|length }})
                 </td>
             </tr>
-            {% if month_key == current_month_key %}
             {% for rem in due_reminders %}
-            <tr class="inline-reminder" id="reminder-inline-{{ rem.id }}">
+            {% if rem.year_month == month_key %}
+            <tr class="inline-reminder" id="reminder-inline-{{ rem.receipt.id }}-{{ rem.year_month }}">
                 <td onclick="event.stopPropagation()">
                     <input type="checkbox" class="recurring-checkbox" checked disabled title="Recurring">
                 </td>
-                <td>{{ rem.payment_date.day }} (expected)</td>
-                <td>{{ rem.company_name }}</td>
+                <td>{{ rem.expected_date.isoformat() }} (expected)</td>
+                <td>{{ rem.display_name or rem.receipt.company_name }}</td>
                 <td>
-                    {% if rem.category == 'leverantörsfaktura' %}
+                    {% if rem.receipt.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>
                     {% else %}
                     <span class="badge badge-annat">Annat</span>
@@ -262,13 +264,14 @@ td:last-child, th:last-child {
                 </td>
                 <td colspan="2" style="text-align: center; color: var(--text-muted);">— pending —</td>
                 <td onclick="event.stopPropagation()">
-                    <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.id }})" title="Upload receipt">Upload</button>
-                    <input type="file" class="reminder-upload-input" id="reminder-file-inline-{{ rem.id }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.id }})">
-                    <button class="btn-done" onclick="dismissReminder({{ rem.id }})" title="Done for this month">Done</button>
+                    <button class="btn-upload-reminder" onclick="triggerReminderUpload({{ rem.receipt.id }}, '{{ rem.year_month }}')" title="Upload receipt">Upload</button>
+                    <input type="file" class="reminder-upload-input" id="reminder-file-inline-{{ rem.receipt.id }}-{{ rem.year_month }}" accept=".pdf,.jpg,.jpeg,.png" onchange="submitReminderUpload({{ rem.receipt.id }}, '{{ rem.year_month }}')">
+                    <button class="btn-done" onclick="dismissReminder({{ rem.receipt.id }}, '{{ rem.year_month }}')" title="Done for {{ rem.year_month }}">Done</button>
+                    <button class="btn btn-danger" onclick="stopRecurring({{ rem.receipt.id }})" title="Stop this recurring reminder entirely">Stop</button>
                 </td>
             </tr>
-            {% endfor %}
             {% endif %}
+            {% endfor %}
             {% for r in month_data.receipts %}
             <tr onclick="window.location='/receipt/{{ r.id }}'" style="cursor:pointer" class="{% if r.id in fulfilled_receipt_ids %}fulfilled-receipt{% endif %}">
                 <td onclick="event.stopPropagation()">
@@ -519,33 +522,48 @@ function toggleReminderSection() {
 }
 
 function toggleRecurring(id, checkbox) {
-    fetch('/receipt/' + id + '/toggle-recurring', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success) {
+    function send(confirmFlag) {
+        const body = new FormData();
+        if (confirmFlag) body.append('confirm', 'true');
+        return fetch('/receipt/' + id + '/toggle-recurring', { method: 'POST', body })
+            .then(r => r.json());
+    }
+    send(false).then(data => {
+        if (data.success) return;
+        if (data.duplicate) {
+            const proceed = confirm(data.message + '\n\nMark this one as recurring anyway?');
+            if (!proceed) {
                 checkbox.checked = !checkbox.checked;
-                alert('Failed to toggle recurring');
+                return;
             }
-        })
-        .catch(() => {
-            checkbox.checked = !checkbox.checked;
-            alert('Failed to toggle recurring');
-        });
+            return send(true).then(d2 => {
+                if (!d2.success) {
+                    checkbox.checked = !checkbox.checked;
+                    alert('Failed to toggle recurring');
+                }
+            });
+        }
+        checkbox.checked = !checkbox.checked;
+        alert('Failed to toggle recurring');
+    }).catch(() => {
+        checkbox.checked = !checkbox.checked;
+        alert('Failed to toggle recurring');
+    });
 }
 
-function dismissReminder(id) {
-    if (confirm('Mark this reminder as done for this month?')) {
-        fetch('/receipt/' + id + '/dismiss-reminder', { method: 'POST' })
+function dismissReminder(id, yearMonth) {
+    if (confirm('Mark this reminder as done for ' + yearMonth + '?')) {
+        const body = new FormData();
+        body.append('year_month', yearMonth);
+        fetch('/receipt/' + id + '/dismiss-reminder', { method: 'POST', body })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    // Remove from both top section and inline
-                    const topRow = document.getElementById('reminder-top-' + id);
-                    const inlineRow = document.getElementById('reminder-inline-' + id);
+                    const topRow = document.getElementById('reminder-top-' + id + '-' + yearMonth);
+                    const inlineRow = document.getElementById('reminder-inline-' + id + '-' + yearMonth);
                     if (topRow) topRow.remove();
                     if (inlineRow) inlineRow.remove();
 
-                    // Check if any reminders left in top section
                     const section = document.getElementById('reminderSection');
                     if (section && section.querySelectorAll('.reminder-row').length === 0) {
                         section.remove();
@@ -558,23 +576,35 @@ function dismissReminder(id) {
     }
 }
 
-function triggerReminderUpload(id) {
-    // Try both possible file inputs (top section and inline)
-    const input = document.getElementById('reminder-file-' + id) ||
-                  document.getElementById('reminder-file-inline-' + id);
+function stopRecurring(id) {
+    if (!confirm('Stop this recurring reminder?\nAll currently-pending and future reminders for this source will be removed.')) return;
+    fetch('/receipt/' + id + '/stop-recurring', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Failed to stop reminder');
+            }
+        })
+        .catch(() => alert('Failed to stop reminder'));
+}
+
+function triggerReminderUpload(id, yearMonth) {
+    const input = document.getElementById('reminder-file-' + id + '-' + yearMonth) ||
+                  document.getElementById('reminder-file-inline-' + id + '-' + yearMonth);
     if (input) input.click();
 }
 
-function submitReminderUpload(id) {
-    const input = document.getElementById('reminder-file-' + id) ||
-                  document.getElementById('reminder-file-inline-' + id);
+function submitReminderUpload(id, yearMonth) {
+    const input = document.getElementById('reminder-file-' + id + '-' + yearMonth) ||
+                  document.getElementById('reminder-file-inline-' + id + '-' + yearMonth);
     if (!input || !input.files.length) return;
 
-    // Store context for the modal
     window._reminderUploadId = id;
+    window._reminderUploadYearMonth = yearMonth;
     window._reminderUploadFile = input.files[0];
 
-    // Show backend choice modal
     document.getElementById('reminderFileName').textContent = input.files[0].name;
     document.getElementById('reminderBackendModal').style.display = 'flex';
 }
@@ -612,8 +642,14 @@ function submitReminderWithBackend(backend) {
     backendInput.name = 'backend';
     backendInput.value = backend;
 
+    const ymInput = document.createElement('input');
+    ymInput.type = 'hidden';
+    ymInput.name = 'year_month';
+    ymInput.value = window._reminderUploadYearMonth;
+
     form.appendChild(fileInput);
     form.appendChild(backendInput);
+    form.appendChild(ymInput);
     document.body.appendChild(form);
     form.submit();
 }

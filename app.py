@@ -194,6 +194,7 @@ async def process_receipt(
     ocr_cost: float = Form(0.0),
     extra_files: list[UploadFile] = File(default=[]),
     reminder_source_id: int | None = Form(default=None),
+    reminder_year_month: str | None = Form(default=None),
 ):
     """Process confirmed receipt: save to DB, create staging folder structure, send email."""
     # Parse date
@@ -247,9 +248,9 @@ async def process_receipt(
     # Save to database first (so we have receipt_id for attachments)
     receipt_id = database.add_receipt(receipt)
 
-    # If created from a reminder, mark the new receipt as recurring too
-    if reminder_source_id:
-        database.update_receipt(receipt_id, is_recurring=True)
+    # NOTE: do NOT auto-mark this new receipt as recurring. The original source
+    # already carries the recurring flag; mirroring it here multiplies sources
+    # every month and creates duplicate reminders.
 
     # Handle extra attachments (save to staging folder)
     extra_paths = []
@@ -305,11 +306,10 @@ async def process_receipt(
         except Exception as e:
             print(f"Email send failed: {e}")
 
-    # If this was a reminder upload, dismiss the reminder as fulfilled
-    if reminder_source_id:
-        year_month = datetime.now().strftime("%Y-%m")
+    # If this was a reminder upload, dismiss that specific month's reminder as fulfilled
+    if reminder_source_id and reminder_year_month:
         database.dismiss_reminder(
-            reminder_source_id, year_month,
+            reminder_source_id, reminder_year_month,
             status="fulfilled", fulfilled_receipt_id=receipt_id,
         )
 
@@ -1077,35 +1077,89 @@ async def api_list_receipts(
     ]
 
 
+# Aliases endpoints
+
+@app.get("/aliases", response_class=HTMLResponse)
+async def aliases_page(request: Request):
+    return templates.TemplateResponse("aliases.html", {
+        "request": request,
+        "aliases": database.list_aliases(),
+    })
+
+
+@app.post("/aliases")
+async def create_alias(alias: str = Form(...), canonical: str = Form(...)):
+    database.add_alias(alias, canonical)
+    return RedirectResponse(url="/aliases", status_code=303)
+
+
+@app.post("/aliases/{alias_id}/delete")
+async def remove_alias(alias_id: int):
+    database.delete_alias(alias_id)
+    return RedirectResponse(url="/aliases", status_code=303)
+
+
 # Reminder endpoints
 
 @app.post("/receipt/{receipt_id}/toggle-recurring")
-async def toggle_recurring(receipt_id: int):
-    """Toggle the recurring reminder flag on a receipt."""
+async def toggle_recurring(receipt_id: int, confirm: bool = Form(default=False)):
+    """Toggle the recurring reminder flag on a receipt.
+
+    When turning ON, refuse if another receipt with the same canonical
+    company name (after aliases) is already recurring — unless the client
+    explicitly passes confirm=true. This catches accidental double-checking
+    of the same monthly bill.
+    """
     receipt = database.get_receipt(receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
     new_value = not receipt.is_recurring
+
+    if new_value and not confirm:
+        existing = database.find_recurring_by_canonical(receipt.company_name, exclude_id=receipt_id)
+        if existing:
+            other = existing[0]
+            return {
+                "success": False,
+                "duplicate": True,
+                "message": (
+                    f"Another receipt is already set as recurring for the same vendor: "
+                    f"'{other['company_name']}' on {other['payment_date']}. "
+                    f"Marking this one too will create duplicate monthly reminders."
+                ),
+            }
+
     database.update_receipt(receipt_id, is_recurring=int(new_value))
     return {"success": True, "is_recurring": new_value}
 
 
+@app.post("/receipt/{receipt_id}/stop-recurring")
+async def stop_recurring(receipt_id: int):
+    """Permanently stop a recurring reminder. Sets is_recurring=0 on the
+    source receipt so all currently-pending and future months for it disappear.
+    """
+    receipt = database.get_receipt(receipt_id)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    database.update_receipt(receipt_id, is_recurring=0)
+    return {"success": True}
+
+
 @app.post("/receipt/{receipt_id}/dismiss-reminder")
-async def dismiss_reminder(receipt_id: int):
-    """Dismiss a reminder for the current month."""
+async def dismiss_reminder(receipt_id: int, year_month: str = Form(...)):
+    """Dismiss a recurring reminder for a specific month (e.g. '2026-04')."""
     receipt = database.get_receipt(receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
-    year_month = datetime.now().strftime("%Y-%m")
     success = database.dismiss_reminder(receipt_id, year_month, status="done")
     return {"success": success}
 
 
 @app.post("/receipt/{receipt_id}/upload-reminder")
-async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = File(...), backend: str = Form("")):
-    """Upload a file to fulfill a recurring reminder. Returns confirm page with pre-filled or OCR data."""
+async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = File(...), backend: str = Form(""), year_month: str = Form(...)):
+    """Upload a file to fulfill a recurring reminder for a specific month (e.g. '2026-04')."""
     receipt = database.get_receipt(receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
@@ -1125,12 +1179,15 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Calculate expected date for this month
+    # Calculate expected date for the target reminder month.
     import calendar
-    now = date.today()
-    last_day = calendar.monthrange(now.year, now.month)[1]
+    try:
+        target_year, target_month = (int(p) for p in year_month.split("-"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid year_month")
+    last_day = calendar.monthrange(target_year, target_month)[1]
     reminder_day = min(receipt.payment_date.day, last_day)
-    prefilled_date = date(now.year, now.month, reminder_day)
+    prefilled_date = date(target_year, target_month, reminder_day)
 
     backend = backend.strip() if backend else None
 
@@ -1176,6 +1233,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
         "current_backend": backend or config.OCR_BACKEND,
         "manual": False,
         "reminder_source_id": receipt.id,
+        "reminder_year_month": year_month,
         "category_prefill": receipt.category,
         "gemma_available": bool(config.GEMMA_API_BASE),
     })
