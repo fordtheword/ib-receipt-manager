@@ -148,6 +148,15 @@
 .reminder-upload-input {
     display: none;
 }
+.alias-marker {
+    font-size: 11px;
+    opacity: 0.6;
+    margin-left: 4px;
+    cursor: help;
+}
+.alias-marker:hover {
+    opacity: 1;
+}
 /* Prevent date and actions column wrapping */
 td:nth-child(2), th:nth-child(2),
 td:last-child, th:last-child {
@@ -204,7 +213,7 @@ td:last-child, th:last-child {
                     {% for rem in due_reminders %}
                     <tr class="reminder-row" id="reminder-top-{{ rem.receipt.id }}-{{ rem.year_month }}">
                         <td>{{ rem.expected_date.isoformat() }}</td>
-                        <td>{{ rem.display_name or rem.receipt.company_name }}</td>
+                        <td>{{ rem.display_name or rem.receipt.company_name }}{% if rem.display_name and rem.display_name != rem.receipt.company_name %} <span class="alias-marker" title="Aliased from: {{ rem.receipt.company_name }}">🔗</span>{% endif %}</td>
                         <td>
                             {% if rem.receipt.category == 'leverantörsfaktura' %}
                             <span class="badge badge-lev">Leverantör</span>
@@ -254,7 +263,7 @@ td:last-child, th:last-child {
                     <input type="checkbox" class="recurring-checkbox" checked disabled title="Recurring">
                 </td>
                 <td>{{ rem.expected_date.isoformat() }} (expected)</td>
-                <td>{{ rem.display_name or rem.receipt.company_name }}</td>
+                <td>{{ rem.display_name or rem.receipt.company_name }}{% if rem.display_name and rem.display_name != rem.receipt.company_name %} <span class="alias-marker" title="Aliased from: {{ rem.receipt.company_name }}">🔗</span>{% endif %}</td>
                 <td>
                     {% if rem.receipt.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>
