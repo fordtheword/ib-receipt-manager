@@ -726,7 +726,7 @@ class ClaudeVisionOCR(OCRBackend):
         media_type = media_types.get(suffix, 'image/jpeg')
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[{
                 "role": "user",
@@ -779,19 +779,47 @@ class ClaudeVisionOCR(OCRBackend):
 
         content.append({
             "type": "text",
-            "text": """Analyze this document (all pages) and extract:
-1. Payment date - the actual charge/transaction date from the content (IGNORE email header dates, for Kickstarter use "card charged" date not backing date)
-2. Company/vendor name (NOT payment processors like Klarna)
-3. Total amount with currency (Swedish: totalt, att betala, summa / English: total, amount due)
+            "text": """Analyze this document (all pages) and extract payment date, company name, and total amount.
+
+The document could be:
+- A Swedish invoice (faktura) - look for förfallodatum, betala senast, betalningsdatum
+- An English invoice - look for due date, payment due, invoice date
+- An e-commerce order - look for order date, purchase date
+- A receipt/kvitto - look for transaction date
+
+For the DATE:
+- PRIORITIZE due date (förfallodatum, betala senast, due date, payment due)
+- IGNORE document print date (Datum in header) - this is NOT the payment date
+- IGNORE email header dates (sent date, received date)
+- For Kickstarter/crowdfunding: use "card charged" date, not backing date
+- Format as YYYY-MM-DD
+
+For the COMPANY:
+- Use the merchant/vendor who sold the goods (e.g., webhallen.com, not Klarna)
+- Do NOT use payment processors (Klarna, PayPal, Avarda) as the company
+
+For PAYMENT HANDLER:
+- Identify if a payment processor is used (Klarna, Avarda, Swish, PayPal, Resurs, etc.)
+- Return the handler name, or null if direct payment
+
+For the TOTAL:
+- Swedish: totalt, att betala, belopp att betala, summa
+- English: total, amount due, grand total
+- Include currency (SEK, kr, $, €)
+
+LANGUAGE RULE FOR raw_text:
+- Detect the language of the receipt itself.
+- Write raw_text in THAT SAME LANGUAGE. If the receipt is Swedish, raw_text MUST be Swedish. If German, German. Never translate.
+- raw_text should be a short summary (1-2 sentences) of what the receipt is for.
 
 Return JSON only, no other text:
-{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "total": "123.45 SEK", "raw_text": "full text from receipt"}
+{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "payment_handler": null, "total": "123.45 SEK", "raw_text": "summary in receipt's language"}
 
 If you can't find a field, use null."""
         })
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[{
                 "role": "user",
@@ -800,7 +828,15 @@ If you can't find a field, use null."""
         )
 
         try:
-            data = json.loads(response.content[0].text)
+            text = response.content[0].text
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+
+            data = json.loads(text.strip())
+            if isinstance(data, list) and data:
+                data = data[0]
             payment_date = None
             if data.get('payment_date'):
                 parts = data['payment_date'].split('-')
@@ -809,10 +845,11 @@ If you can't find a field, use null."""
             return ReceiptData(
                 payment_date=payment_date,
                 company_name=data.get('company_name'),
+                payment_handler=data.get('payment_handler'),
                 raw_text=data.get('raw_text', ''),
                 confidence=0.9
             )
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except (json.JSONDecodeError, KeyError, ValueError, IndexError, AttributeError):
             # Fallback to basic extraction
             return super().extract_receipt_data(image_paths)
 
@@ -823,10 +860,10 @@ def get_ocr_backend(backend: str | None = None) -> OCRBackend:
 
     # Auto-detect: if set to 'auto' or AI backend without key, pick best available
     if backend == 'auto' or (backend == 'claude' and not config.ANTHROPIC_API_KEY) or (backend == 'gpt4' and not config.OPENAI_API_KEY):
-        if config.OPENAI_API_KEY:
-            backend = 'gpt4'
-        elif config.ANTHROPIC_API_KEY:
+        if config.ANTHROPIC_API_KEY:
             backend = 'claude'
+        elif config.OPENAI_API_KEY:
+            backend = 'gpt4'
         else:
             backend = 'easyocr'  # Fallback to free option
 

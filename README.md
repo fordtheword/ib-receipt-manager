@@ -77,15 +77,15 @@ OCR_BACKEND=auto
 
 | Backend | Cost | Accuracy | Requirements |
 |---------|------|----------|-------------|
+| `claude` | ~$0.001/receipt | Great | Anthropic API key (uses Haiku 4.5) |
 | `gpt4` | ~$0.01/receipt | Best | OpenAI API key |
-| `claude` | ~$0.01/receipt | Great | Anthropic API key |
 | `easyocr` | Free | Good | None (installed with pip) |
 | `tesseract` | Free | Decent | Tesseract installed on system |
 | `local` | Free | Good | Local GGUF model files (advanced, see below) |
-| `gemma` | Free | Great | Gemma 4 served via an OpenAI-compatible HTTP endpoint (e.g. Docker Model Runner on a LAN/Tailscale host) |
-| `auto` | Varies | Best available | Uses first available: GPT-4 > Claude > local > EasyOCR |
+| `gemma` | Free | Great | Gemma served via an OpenAI-compatible HTTP endpoint (e.g. Ollama on a LAN/Tailscale host) |
+| `auto` | Varies | Best available | Uses first available: Claude > GPT-4 > local > EasyOCR |
 
-**Recommended:** Start with `gpt4` or `claude` for the best experience. The API cost is minimal (roughly 1 cent per receipt). Set your API key:
+**Recommended:** Start with `claude` or `gpt4` for the best experience. Claude Haiku 4.5 is cheap (well under a cent per receipt). Set your API key:
 
 ```env
 ANTHROPIC_API_KEY=your-key-here

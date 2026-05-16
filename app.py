@@ -103,7 +103,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         return templates.TemplateResponse("error.html", {
             "request": request,
             "error": f"OCR failed: {e}",
-            "filename": file_path.name,  # Allow retry with GPT-4
+            "filename": file_path.name,  # Allow retry with Claude
         })
 
     # Show confirmation form

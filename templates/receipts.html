@@ -671,7 +671,7 @@ function submitReminderWithBackend(backend) {
         <p class="text-muted" style="margin-bottom:20px;" id="reminderFileName"></p>
         <div style="display:flex; flex-direction:column; gap:10px;">
             <button class="btn btn-success" onclick="submitReminderWithBackend('')" style="width:100%;">Process Receipt (AI)</button>
-            <button class="btn" style="background:#10a37f; color:white; width:100%;" onclick="submitReminderWithBackend('gpt4')">Process with ChatGPT Vision</button>
+            <button class="btn" style="background:#d97757; color:white; width:100%;" onclick="submitReminderWithBackend('claude')">Process with Claude Vision</button>
             {% if config_status.ocr_gemma %}<button class="btn" style="background:#4285f4; color:white; width:100%;" onclick="submitReminderWithBackend('gemma')">Process with Gemma 4</button>{% endif %}
             <button class="btn" style="background:#6c757d; color:white; width:100%;" onclick="submitReminderWithBackend('manual')">Add Manually</button>
             <button class="btn" style="background:transparent; color:var(--text-muted); border:1px solid var(--border-color); width:100%;" onclick="document.getElementById('reminderBackendModal').style.display='none'">Cancel</button>

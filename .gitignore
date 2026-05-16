@@ -53,5 +53,8 @@ public-staging/
 # Windows artifacts
 nul
 
+# Local server logs
+uvicorn.*.log
+
 # Docs
 *.docx
