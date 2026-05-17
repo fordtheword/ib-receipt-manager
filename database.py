@@ -3,7 +3,6 @@
 import sqlite3
 from datetime import datetime, date
 from dataclasses import dataclass
-from pathlib import Path
 
 import config
 
@@ -19,7 +18,7 @@ class Receipt:
     payment_handler: str | None  # Klarna, Avarda, etc.
     category: str
     staging_path: str | None  # Path in local staging folder
-    dropbox_path: str | None
+    storage_path: str | None
     email_sent_to: str | None
     email_sent_at: datetime | None
     notes: str | None = None  # Custom message for email
@@ -58,7 +57,7 @@ def init_db():
             company_name TEXT NOT NULL,
             payment_handler TEXT,
             category TEXT NOT NULL,
-            dropbox_path TEXT,
+            storage_path TEXT,
             email_sent_to TEXT,
             email_sent_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -81,6 +80,13 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # Rename dropbox_path to storage_path (migration)
+    try:
+        conn.execute("ALTER TABLE receipts RENAME COLUMN dropbox_path TO storage_path")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already renamed or doesn't exist
 
     # Add notes column if it doesn't exist (migration)
     try:
@@ -154,7 +160,7 @@ def add_receipt(receipt: Receipt) -> int:
     cursor = conn.execute("""
         INSERT INTO receipts (
             original_filename, stored_filename, payment_date, company_name,
-            payment_handler, category, staging_path, dropbox_path, email_sent_to, email_sent_at, notes, ocr_cost
+            payment_handler, category, staging_path, storage_path, email_sent_to, email_sent_at, notes, ocr_cost
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         receipt.original_filename,
@@ -164,7 +170,7 @@ def add_receipt(receipt: Receipt) -> int:
         receipt.payment_handler,
         receipt.category,
         receipt.staging_path,
-        receipt.dropbox_path,
+        receipt.storage_path,
         receipt.email_sent_to,
         receipt.email_sent_at.isoformat() if receipt.email_sent_at else None,
         receipt.notes,
@@ -337,7 +343,7 @@ def _row_to_receipt(row: sqlite3.Row) -> Receipt:
         payment_handler=row['payment_handler'] if 'payment_handler' in row.keys() else None,
         category=row['category'],
         staging_path=row['staging_path'] if 'staging_path' in row.keys() else None,
-        dropbox_path=row['dropbox_path'],
+        storage_path=row['storage_path'] if 'storage_path' in row.keys() else (row['dropbox_path'] if 'dropbox_path' in row.keys() else None),
         email_sent_to=row['email_sent_to'],
         email_sent_at=datetime.fromisoformat(row['email_sent_at']) if row['email_sent_at'] else None,
         notes=row['notes'] if 'notes' in row.keys() else None,

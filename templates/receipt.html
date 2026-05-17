@@ -93,8 +93,8 @@ function dismissCleanup() {
             <td>{{ receipt.stored_filename }}</td>
         </tr>
         <tr>
-            <th>Dropbox Path</th>
-            <td>{{ receipt.dropbox_path or '⏳ Not uploaded yet' }}</td>
+            <th>{{ storage_provider_name }} Path</th>
+            <td>{{ receipt.storage_path or '⏳ Not uploaded yet' }}</td>
         </tr>
         <tr>
             <th>Email Status</th>
@@ -154,10 +154,10 @@ function dismissCleanup() {
         <a href="/receipt/{{ receipt.id }}/edit" class="btn">Edit</a>
         <a href="/" class="btn btn-success">Upload New</a>
         <button onclick="openFolder({{ receipt.id }})" class="btn">📁 Open Folder</button>
-        {% if not receipt.dropbox_path %}
-        <button onclick="sendToDropbox({{ receipt.id }}, false)" class="btn btn-warning">Send to Dropbox</button>
+        {% if not receipt.storage_path %}
+        <button onclick="sendToStorage({{ receipt.id }}, false)" class="btn btn-warning">Send to {{ storage_provider_name }}</button>
         {% else %}
-        <button onclick="sendToDropbox({{ receipt.id }}, true)" class="btn" style="background:#e67e22;color:white;" title="Re-upload to Dropbox">🔄 Re-upload to Dropbox</button>
+        <button onclick="sendToStorage({{ receipt.id }}, true)" class="btn" style="background:#e67e22;color:white;" title="Re-upload to {{ storage_provider_name }}">🔄 Re-upload to {{ storage_provider_name }}</button>
         {% endif %}
         {% if receipt.email_sent_at %}
         <button onclick="resendEmail({{ receipt.id }})" class="btn btn-warning">Send Email Again</button>
@@ -243,20 +243,20 @@ function dismissCleanup() {
         }
     }
 
-    function sendToDropbox(id, force) {
-        const msg = force ? 'Re-upload to Dropbox?' : 'Send to Dropbox?';
+    function sendToStorage(id, force) {
+        const msg = force ? 'Re-upload to {{ storage_provider_name }}?' : 'Send to {{ storage_provider_name }}?';
         if (confirm(msg)) {
-            const url = force ? '/receipt/' + id + '/dropbox?force=true' : '/receipt/' + id + '/dropbox';
+            const url = force ? '/receipt/' + id + '/storage?force=true' : '/receipt/' + id + '/storage';
             fetch(url, { method: 'POST' })
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
                         window.location.reload();
                     } else {
-                        alert('Dropbox failed: ' + (data.error || 'Unknown error'));
+                        alert('Storage failed: ' + (data.error || 'Unknown error'));
                     }
                 })
-                .catch(() => alert('Dropbox failed'));
+                .catch(() => alert('Storage failed'));
         }
     }
 
