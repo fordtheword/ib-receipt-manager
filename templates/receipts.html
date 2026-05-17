@@ -188,7 +188,7 @@ td:last-child, th:last-child {
         <a href="/receipts" class="btn btn-danger">Clear</a>
         {% endif %}
         <button onclick="openStagingFolder()" class="btn" title="Open local staging folder">📁 Open Folder</button>
-        <button onclick="uploadAllToDropbox()" class="btn btn-warning" title="Upload all pending to Dropbox">📤 Upload All to Dropbox</button>
+        <button onclick="uploadAllToStorage()" class="btn btn-warning" title="Upload all pending to {{ storage_provider_name }}">📤 Upload All to {{ storage_provider_name }}</button>
         <a href="/aliases" class="btn" title="Manage company name aliases">🔗 Aliases</a>
     </form>
 
@@ -243,7 +243,7 @@ td:last-child, th:last-child {
                 <th>Date</th>
                 <th>Company</th>
                 <th>Category</th>
-                <th>Dropbox</th>
+                <th>{{ storage_provider_name }}</th>
                 <th>Email</th>
                 <th>Actions</th>
             </tr>
@@ -296,10 +296,10 @@ td:last-child, th:last-child {
                     {% endif %}
                 </td>
                 <td onclick="event.stopPropagation()">
-                    {% if r.dropbox_path %}
-                    <span class="status-ok" onclick="sendToDropbox({{ r.id }}, true)" style="cursor:pointer" title="Re-upload to Dropbox">✓</span>
+                    {% if r.storage_path %}
+                    <span class="status-ok" onclick="sendToStorage({{ r.id }}, true)" style="cursor:pointer" title="Re-upload to {{ storage_provider_name }}">✓</span>
                     {% else %}
-                    <span class="status-pending" onclick="sendToDropbox({{ r.id }}, false)" style="cursor:pointer" title="Click to send to Dropbox">⏳</span>
+                    <span class="status-pending" onclick="sendToStorage({{ r.id }}, false)" style="cursor:pointer" title="Click to send to {{ storage_provider_name }}">⏳</span>
                     {% endif %}
                 </td>
                 <td onclick="event.stopPropagation()">
@@ -375,20 +375,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function sendToDropbox(id, force) {
-    const msg = force ? 'Re-upload to Dropbox?' : 'Send to Dropbox?';
+function sendToStorage(id, force) {
+    const msg = force ? 'Re-upload to {{ storage_provider_name }}?' : 'Send to {{ storage_provider_name }}?';
     if (confirm(msg)) {
-        const url = force ? '/receipt/' + id + '/dropbox?force=true' : '/receipt/' + id + '/dropbox';
+        const url = force ? '/receipt/' + id + '/storage?force=true' : '/receipt/' + id + '/storage';
         fetch(url, { method: 'POST' })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    alert('Dropbox failed: ' + (data.error || 'Unknown error'));
+                    alert('Storage failed: ' + (data.error || 'Unknown error'));
                 }
             })
-            .catch(() => alert('Dropbox failed'));
+            .catch(() => alert('Storage failed'));
     }
 }
 
@@ -439,8 +439,8 @@ function openStagingFolder() {
         .catch(() => alert('Could not open folder'));
 }
 
-function uploadAllToDropbox() {
-    if (!confirm('Upload all pending receipts to Dropbox?')) return;
+function uploadAllToStorage() {
+    if (!confirm('Upload all pending receipts to {{ storage_provider_name }}?')) return;
 
     const btn = event.target;
     btn.disabled = true;
@@ -468,7 +468,7 @@ function uploadAllToDropbox() {
         .catch(() => alert('Upload failed'))
         .finally(() => {
             btn.disabled = false;
-            btn.textContent = '📤 Upload All to Dropbox';
+            btn.textContent = '📤 Upload All to {{ storage_provider_name }}';
         });
 }
 

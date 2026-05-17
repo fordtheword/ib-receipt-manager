@@ -30,8 +30,28 @@ LOCAL_VISION_MMPROJ = os.getenv("LOCAL_VISION_MMPROJ", "")
 GEMMA_API_BASE = os.getenv("GEMMA_API_BASE", "")
 GEMMA_MODEL = os.getenv("GEMMA_MODEL", "ai/gemma4:E4B")
 
-# Dropbox (local folder - synced by Dropbox desktop client)
+# Cloud Storage (synced by desktop clients)
+STORAGE_PROVIDER = os.getenv("STORAGE_PROVIDER", "dropbox").lower()
 DROPBOX_LOCAL_PATH = Path(os.getenv("DROPBOX_LOCAL_PATH", ""))
+GOOGLE_DRIVE_LOCAL_PATH = Path(os.getenv("GOOGLE_DRIVE_LOCAL_PATH", ""))
+
+def get_storage_local_path() -> Path | None:
+    """Get the active local storage path based on provider."""
+    if STORAGE_PROVIDER == "google_drive" and GOOGLE_DRIVE_LOCAL_PATH and str(GOOGLE_DRIVE_LOCAL_PATH) != ".":
+        return GOOGLE_DRIVE_LOCAL_PATH
+    elif STORAGE_PROVIDER == "dropbox" and DROPBOX_LOCAL_PATH and str(DROPBOX_LOCAL_PATH) != ".":
+        return DROPBOX_LOCAL_PATH
+    # Fallbacks if path isn't specifically set but might be configured
+    if STORAGE_PROVIDER == "google_drive":
+        return GOOGLE_DRIVE_LOCAL_PATH
+    return DROPBOX_LOCAL_PATH
+
+def get_storage_provider_name() -> str:
+    """Get the display name of the storage provider."""
+    if STORAGE_PROVIDER == "google_drive":
+        return "Google Drive"
+    return "Dropbox"
+
 
 # Source folder for unprocessed receipts (for cleanup after processing)
 OHANTERADE_FOLDER = Path(os.getenv("OHANTERADE_FOLDER", "")) if os.getenv("OHANTERADE_FOLDER") else None
@@ -61,6 +81,7 @@ def get_email_for_category(category: str) -> str:
 
 def validate_config() -> dict[str, bool]:
     """Check which integrations are configured."""
+    storage_path = get_storage_local_path()
     return {
         "ocr_tesseract": True,  # Always available if installed
         "ocr_easyocr": True,    # Always available if installed
@@ -68,6 +89,6 @@ def validate_config() -> dict[str, bool]:
         "ocr_gpt4": bool(OPENAI_API_KEY),
         "ocr_local": bool(LOCAL_VISION_MODEL and LOCAL_VISION_MMPROJ),
         "ocr_gemma": bool(GEMMA_API_BASE),
-        "dropbox": DROPBOX_LOCAL_PATH.exists(),
+        "storage": bool(storage_path and str(storage_path) != "." and storage_path.exists()),
         "email": bool(SMTP_USERNAME and SMTP_PASSWORD),
     }

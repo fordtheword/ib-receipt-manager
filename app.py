@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 
 import config
 import database
-import dropbox_handler
+import storage_handler
 import email_handler
 from database import Receipt, Attachment
 from ocr_handler import extract_receipt_data
@@ -51,6 +51,7 @@ async def home(request: Request):
     """Home page with upload form."""
     receipts = database.get_all_receipts(limit=10)
     return templates.TemplateResponse("index.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "receipts": receipts,
         "config_status": config.validate_config(),
@@ -82,7 +83,8 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
     # Skip OCR for manual entry
     if backend == "manual":
         return templates.TemplateResponse("confirm.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "filename": file_path.name,
             "original_filename": file.filename,
             "payment_date": "",
@@ -101,13 +103,15 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         result = extract_receipt_data(file_path, backend=backend)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "error": f"OCR failed: {e}",
             "filename": file_path.name,  # Allow retry with Claude
         })
 
     # Show confirmation form
     return templates.TemplateResponse("confirm.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "filename": file_path.name,
         "original_filename": file.filename,
@@ -130,7 +134,8 @@ async def retry_ocr(request: Request, filename: str = Form(...), backend: str = 
 
     if not file_path.exists():
         return templates.TemplateResponse("error.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "error": f"File not found: {filename}",
         })
 
@@ -139,12 +144,14 @@ async def retry_ocr(request: Request, filename: str = Form(...), backend: str = 
         result = extract_receipt_data(file_path, backend=backend)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "error": f"OCR failed with {backend}: {e}",
         })
 
     # Show confirmation form
     return templates.TemplateResponse("confirm.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "filename": filename,
         "original_filename": original_filename or filename,
@@ -238,7 +245,7 @@ async def process_receipt(
         payment_handler=payment_handler or None,
         category=category,
         staging_path=str(staged_file_path),
-        dropbox_path=None,  # Will be set after Dropbox upload
+        storage_path=None,  # Will be set after Dropbox upload
         email_sent_to=None,
         email_sent_at=None,
         notes=notes or None,
@@ -341,6 +348,7 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: str | None = 
     ohanterade = get_ohanterade_folder()
 
     return templates.TemplateResponse("receipt.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "receipt": receipt,
         "attachments": attachments,
@@ -360,6 +368,7 @@ async def edit_receipt_form(request: Request, receipt_id: int):
     attachments = database.get_attachments(receipt_id)
 
     return templates.TemplateResponse("edit.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "receipt": receipt,
         "attachments": attachments,
@@ -396,7 +405,7 @@ async def save_receipt_edit(
 
     # Check if folder-affecting data changed and receipt is still in staging
     new_staging_path = None
-    if receipt.staging_path and not receipt.dropbox_path:
+    if receipt.staging_path and not receipt.storage_path:
         old_folder = Path(receipt.staging_path).parent
         old_file = Path(receipt.staging_path)
         new_folder = get_staging_folder_path(parsed_date, company_name, payment_handler or None)
@@ -542,6 +551,7 @@ async def list_receipts(
     fulfilled_receipt_ids = {f["fulfilled_receipt_id"] for f in fulfilled if f["fulfilled_receipt_id"]}
 
     return templates.TemplateResponse("receipts.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "receipts": receipts,
         "grouped_receipts": grouped_receipts,
@@ -572,12 +582,12 @@ async def resend_email(receipt_id: int):
 
     # Find the main file - try Dropbox, then staging
     attachment_path = None
-    if receipt.dropbox_path:
-        dropbox_file = Path(receipt.dropbox_path)
-        if dropbox_file.is_absolute():
-            attachment_path = dropbox_file
+    if receipt.storage_path:
+        storage_file = Path(receipt.storage_path)
+        if storage_file.is_absolute():
+            attachment_path = storage_file
         else:
-            attachment_path = config.DROPBOX_LOCAL_PATH / dropbox_file
+            attachment_path = config.DROPBOX_LOCAL_PATH / storage_file
     if not attachment_path or not attachment_path.exists():
         if receipt.staging_path:
             attachment_path = Path(receipt.staging_path)
@@ -617,15 +627,15 @@ async def resend_email(receipt_id: int):
         return {"success": False, "error": str(e)}
 
 
-@app.post("/receipt/{receipt_id}/dropbox")
-async def send_to_dropbox(receipt_id: int, force: bool = False):
-    """Send receipt and attachments to Dropbox folder."""
+@app.post("/receipt/{receipt_id}/storage")
+async def send_to_storage(receipt_id: int, force: bool = False):
+    """Send receipt and attachments to Storage folder."""
     receipt = database.get_receipt(receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
     # Skip if already uploaded (unless force)
-    if receipt.dropbox_path and not force:
+    if receipt.storage_path and not force:
         return {"success": False, "error": "Already uploaded. Use force=true to re-upload."}
 
     if not receipt.payment_date:
@@ -639,8 +649,8 @@ async def send_to_dropbox(receipt_id: int, force: bool = False):
         return {"success": False, "error": "Source file not found"}
 
     try:
-        # Copy main receipt to Dropbox
-        dropbox_path = dropbox_handler.upload_receipt(
+        # Copy main receipt to Storage
+        storage_path = storage_handler.upload_receipt(
             source_path=source_path,
             payment_date=receipt.payment_date,
             company_name=receipt.company_name,
@@ -649,25 +659,25 @@ async def send_to_dropbox(receipt_id: int, force: bool = False):
         )
 
         # Get the Dropbox folder path for attachments
-        dropbox_folder = dropbox_handler.get_dropbox_folder_path(
+        storage_folder = storage_handler.get_storage_folder_path(
             receipt.payment_date,
             receipt.company_name,
             receipt.payment_handler,
         )
 
-        # Copy attachments to Dropbox folder
+        # Copy attachments to Storage folder
         attachments = database.get_attachments(receipt_id)
         for att in attachments:
             att_source = Path(att.file_path)
             if att_source.exists():
-                new_path = dropbox_handler.copy_attachment_to_folder(att_source, dropbox_folder)
+                new_path = storage_handler.copy_attachment_to_folder(att_source, storage_folder)
                 # Update attachment path in database
                 database.update_attachment_path(att.id, str(new_path))
 
         # Update receipt with Dropbox path
         database.update_receipt(
             receipt_id,
-            dropbox_path=str(dropbox_handler.get_full_path(dropbox_path)),
+            storage_path=str(storage_handler.get_full_path(storage_path)),
         )
 
         return {"success": True}
@@ -676,15 +686,15 @@ async def send_to_dropbox(receipt_id: int, force: bool = False):
 
 
 @app.post("/receipts/upload-all-dropbox")
-async def upload_all_to_dropbox(include_uploaded: bool = False):
-    """Upload all receipts that haven't been sent to Dropbox yet."""
+async def upload_all_to_storage(include_uploaded: bool = False):
+    """Upload all receipts that haven't been sent to Storage yet."""
     # Get receipts to upload
     conn = database.get_connection()
     if include_uploaded:
         rows = conn.execute("SELECT id FROM receipts").fetchall()
     else:
         rows = conn.execute(
-            "SELECT id FROM receipts WHERE dropbox_path IS NULL OR dropbox_path = ''"
+            "SELECT id FROM receipts WHERE storage_path IS NULL OR storage_path = ''"
         ).fetchall()
     conn.close()
 
@@ -711,8 +721,8 @@ async def upload_all_to_dropbox(include_uploaded: bool = False):
             continue
 
         try:
-            # Copy main receipt to Dropbox
-            dropbox_path = dropbox_handler.upload_receipt(
+            # Copy main receipt to Storage
+            storage_path = storage_handler.upload_receipt(
                 source_path=source_path,
                 payment_date=receipt.payment_date,
                 company_name=receipt.company_name,
@@ -721,24 +731,24 @@ async def upload_all_to_dropbox(include_uploaded: bool = False):
             )
 
             # Get the Dropbox folder path for attachments
-            dropbox_folder = dropbox_handler.get_dropbox_folder_path(
+            storage_folder = storage_handler.get_storage_folder_path(
                 receipt.payment_date,
                 receipt.company_name,
                 receipt.payment_handler,
             )
 
-            # Copy attachments to Dropbox folder
+            # Copy attachments to Storage folder
             attachments = database.get_attachments(receipt_id)
             for att in attachments:
                 att_source = Path(att.file_path)
                 if att_source.exists():
-                    new_path = dropbox_handler.copy_attachment_to_folder(att_source, dropbox_folder)
+                    new_path = storage_handler.copy_attachment_to_folder(att_source, storage_folder)
                     database.update_attachment_path(att.id, str(new_path))
 
             # Update receipt with Dropbox path
             database.update_receipt(
                 receipt_id,
-                dropbox_path=str(dropbox_handler.get_full_path(dropbox_path)),
+                storage_path=str(storage_handler.get_full_path(storage_path)),
             )
             uploaded += 1
         except Exception as e:
@@ -761,13 +771,13 @@ async def upload_attachment(receipt_id: int, file: UploadFile = File(...)):
         raise HTTPException(status_code=404, detail="Receipt not found")
 
     # Determine where to save the attachment
-    if receipt.dropbox_path:
+    if receipt.storage_path:
         # Save in same Dropbox folder as receipt
-        dropbox_file = Path(receipt.dropbox_path)
-        if dropbox_file.is_absolute():
-            target_folder = dropbox_file.parent
+        storage_file = Path(receipt.storage_path)
+        if storage_file.is_absolute():
+            target_folder = storage_file.parent
         else:
-            target_folder = config.DROPBOX_LOCAL_PATH / dropbox_file.parent
+            target_folder = config.DROPBOX_LOCAL_PATH / storage_file.parent
     elif receipt.staging_path:
         # Save in same staging folder as receipt
         target_folder = Path(receipt.staging_path).parent
@@ -865,13 +875,13 @@ async def open_receipt_folder(receipt_id: int):
         raise HTTPException(status_code=404, detail="Receipt not found")
 
     # Determine the folder path - prefer Dropbox if archived, else staging
-    if receipt.dropbox_path:
-        dropbox_file = Path(receipt.dropbox_path)
+    if receipt.storage_path:
+        storage_file = Path(receipt.storage_path)
         # Handle both absolute and relative paths
-        if dropbox_file.is_absolute():
-            folder_path = dropbox_file.parent
+        if storage_file.is_absolute():
+            folder_path = storage_file.parent
         else:
-            folder_path = config.DROPBOX_LOCAL_PATH / dropbox_file.parent
+            folder_path = config.DROPBOX_LOCAL_PATH / storage_file.parent
     elif receipt.staging_path:
         folder_path = Path(receipt.staging_path).parent
     else:
@@ -905,12 +915,12 @@ async def open_receipt_file(receipt_id: int):
     file_path = None
     if receipt.staging_path:
         file_path = Path(receipt.staging_path)
-    elif receipt.dropbox_path:
-        dropbox_file = Path(receipt.dropbox_path)
-        if dropbox_file.is_absolute():
-            file_path = dropbox_file
+    elif receipt.storage_path:
+        storage_file = Path(receipt.storage_path)
+        if storage_file.is_absolute():
+            file_path = storage_file
         else:
-            file_path = config.DROPBOX_LOCAL_PATH / dropbox_file
+            file_path = config.DROPBOX_LOCAL_PATH / storage_file
 
     if file_path and file_path.exists():
         if sys.platform == 'win32':
@@ -948,8 +958,8 @@ async def delete_receipt(receipt_id: int):
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
 
-    # Delete staging folder if not archived to Dropbox
-    if receipt.staging_path and not receipt.dropbox_path:
+    # Delete staging folder if not archived to Storage
+    if receipt.staging_path and not receipt.storage_path:
         staging_folder = Path(receipt.staging_path).parent
         if staging_folder.exists() and str(config.RECEIPT_DROPS_DIR) in str(staging_folder):
             shutil.rmtree(staging_folder, ignore_errors=True)
@@ -1018,10 +1028,11 @@ async def settings_page(request: Request):
         folder_status = 'empty'
 
     return templates.TemplateResponse("settings.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "settings": settings,
         "folder_status": folder_status,
-        "dropbox_path": str(config.DROPBOX_LOCAL_PATH) if config.DROPBOX_LOCAL_PATH else None,
+        "storage_path": str(config.DROPBOX_LOCAL_PATH) if config.DROPBOX_LOCAL_PATH else None,
         "ocr_backend": config.OCR_BACKEND,
         "email_configured": bool(config.SMTP_USERNAME and config.SMTP_PASSWORD),
     })
@@ -1069,7 +1080,7 @@ async def api_list_receipts(
             "payment_date": r.payment_date.isoformat() if r.payment_date else None,
             "company_name": r.company_name,
             "category": r.category,
-            "dropbox_path": r.dropbox_path,
+            "storage_path": r.storage_path,
             "email_sent_to": r.email_sent_to,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
@@ -1082,6 +1093,7 @@ async def api_list_receipts(
 @app.get("/aliases", response_class=HTMLResponse)
 async def aliases_page(request: Request):
     return templates.TemplateResponse("aliases.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "aliases": database.list_aliases(),
     })
@@ -1194,7 +1206,8 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
     if not backend or backend == "manual":
         # Skip OCR — pre-fill from source receipt
         return templates.TemplateResponse("confirm.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "filename": file_path.name,
             "original_filename": file.filename,
             "payment_date": prefilled_date.isoformat(),
@@ -1215,12 +1228,14 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
         result = extract_receipt_data(file_path, backend=backend if backend else None)
     except Exception as e:
         return templates.TemplateResponse("error.html", {
-            "request": request,
+            "storage_provider_name": config.get_storage_provider_name(),
+        "request": request,
             "error": f"OCR failed: {e}",
             "filename": file_path.name,
         })
 
     return templates.TemplateResponse("confirm.html", {
+        "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "filename": file_path.name,
         "original_filename": file.filename,
