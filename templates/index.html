@@ -97,9 +97,13 @@ function handleFile() {
         const buttonContainer = document.getElementById('buttonContainer');
         buttonContainer.style.display = 'flex';
         buttonContainer.innerHTML = `
-            <button type="button" class="btn btn-success" onclick="submitWithBackend('')">Process Receipt</button>
-            <button type="button" class="btn" style="background:#d97757;color:white;" onclick="submitWithBackend('claude')">Process with Claude Vision</button>
+            <button type="button" class="btn btn-success" onclick="submitWithBackend('')">Process Receipt (Auto)</button>
+            {% if config_status.ocr_claude %}<button type="button" class="btn" style="background:#d97757;color:white;" onclick="submitWithBackend('claude')">Process with Claude Vision</button>{% endif %}
+            {% if config_status.ocr_gpt4 %}<button type="button" class="btn" style="background:#10a37f;color:white;" onclick="submitWithBackend('gpt4')">Process with GPT-4 Vision</button>{% endif %}
             {% if config_status.ocr_gemma %}<button type="button" class="btn" style="background:#4285f4;color:white;" onclick="submitWithBackend('gemma')">Process with Gemma 4</button>{% endif %}
+            {% if config_status.ocr_local %}<button type="button" class="btn" style="background:#8e44ad;color:white;" onclick="submitWithBackend('local')">Process with Local (Qwen)</button>{% endif %}
+            {% if config_status.ocr_easyocr %}<button type="button" class="btn" style="background:#5a6e8c;color:white;" onclick="submitWithBackend('easyocr')">Process with EasyOCR</button>{% endif %}
+            {% if config_status.ocr_tesseract %}<button type="button" class="btn" style="background:#6b7280;color:white;" onclick="submitWithBackend('tesseract')">Process with Tesseract</button>{% endif %}
             <button type="button" class="btn" style="background:#6c757d;color:white;" onclick="submitWithBackend('manual')">Add Manually</button>
         `;
     }

@@ -93,7 +93,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
             "ocr_cost": 0,
             "current_backend": "",
             "manual": True,
-            "gemma_available": bool(config.GEMMA_API_BASE),
+            "config_status": config.validate_config(),
         })
 
     # Run OCR extraction
@@ -103,7 +103,8 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         return templates.TemplateResponse("error.html", {
             "request": request,
             "error": f"OCR failed: {e}",
-            "filename": file_path.name,  # Allow retry with Claude
+            "filename": file_path.name,  # Allow retry with another backend
+            "config_status": config.validate_config(),
         })
 
     # Show confirmation form
@@ -119,7 +120,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         "ocr_cost": result.ocr_cost,
         "current_backend": config.OCR_BACKEND,
         "manual": False,
-        "gemma_available": bool(config.GEMMA_API_BASE),
+        "config_status": config.validate_config(),
     })
 
 
@@ -155,7 +156,7 @@ async def retry_ocr(request: Request, filename: str = Form(...), backend: str = 
         "confidence": result.confidence,
         "ocr_cost": result.ocr_cost,
         "current_backend": backend,
-        "gemma_available": bool(config.GEMMA_API_BASE),
+        "config_status": config.validate_config(),
     })
 
 
@@ -1207,7 +1208,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
             "ocr_cost": 0,
             "reminder_source_id": receipt.id,
             "category_prefill": receipt.category,
-            "gemma_available": bool(config.GEMMA_API_BASE),
+            "config_status": config.validate_config(),
         })
 
     # Run OCR extraction
@@ -1218,6 +1219,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
             "request": request,
             "error": f"OCR failed: {e}",
             "filename": file_path.name,
+            "config_status": config.validate_config(),
         })
 
     return templates.TemplateResponse("confirm.html", {
@@ -1235,7 +1237,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
         "reminder_source_id": receipt.id,
         "reminder_year_month": year_month,
         "category_prefill": receipt.category,
-        "gemma_available": bool(config.GEMMA_API_BASE),
+        "config_status": config.validate_config(),
     })
 
 

@@ -779,7 +779,7 @@ class ClaudeVisionOCR(OCRBackend):
 
         content.append({
             "type": "text",
-            "text": """Analyze this document (all pages) and extract payment date, company name, and total amount.
+            "text": """Analyze this document (all pages) and extract the payment date, company name, payment handler and total amount.
 
 The document could be:
 - A Swedish invoice (faktura) - look for förfallodatum, betala senast, betalningsdatum
@@ -788,39 +788,54 @@ The document could be:
 - A receipt/kvitto - look for transaction date
 
 For the DATE:
-- PRIORITIZE due date (förfallodatum, betala senast, due date, payment due)
-- IGNORE document print date (Datum in header) - this is NOT the payment date
+- PRIORITIZE the due date (förfallodatum, betala senast, betalning oss tillhanda, due date, payment due)
+- If multiple dates exist, use the LATEST payment-related date — förfallodatum takes priority over fakturadatum
+- IGNORE fakturadatum / invoice date when a förfallodatum / due date is present
+- IGNORE the document print date (Datum or Utskriftsdatum in the header) - this is NOT the payment date
 - IGNORE email header dates (sent date, received date)
-- For Kickstarter/crowdfunding: use "card charged" date, not backing date
+- For Kickstarter/crowdfunding: use the "card charged" date, not the backing date
 - Format as YYYY-MM-DD
 
 For the COMPANY:
-- Use the merchant/vendor who sold the goods (e.g., webhallen.com, not Klarna)
-- Do NOT use payment processors (Klarna, PayPal, Avarda) as the company
+- Use the merchant/vendor who sold the goods (e.g., Webhallen, not Klarna)
+- Do NOT use payment processors (Klarna, PayPal, Avarda, Svea, Resurs, Walley) as the company
+- Read the company from the logo/letterhead, not from the "to:" / customer address block
 
-For PAYMENT HANDLER:
-- Identify if a payment processor is used (Klarna, Avarda, Swish, PayPal, Resurs, etc.)
-- Return the handler name, or null if direct payment
+For the PAYMENT HANDLER:
+- Identify whether a payment processor is involved (Klarna, Avarda, Swish, PayPal, Resurs, Walley, Qliro, etc.)
+- Return the handler name, or null for a direct payment
 
 For the TOTAL:
 - Swedish: totalt, att betala, belopp att betala, summa
 - English: total, amount due, grand total
-- Include currency (SEK, kr, $, €)
+- Include the currency (SEK, kr, $, €)
 
 LANGUAGE RULE FOR raw_text:
 - Detect the language of the receipt itself.
 - Write raw_text in THAT SAME LANGUAGE. If the receipt is Swedish, raw_text MUST be Swedish. If German, German. Never translate.
-- raw_text should be a short summary (1-2 sentences) of what the receipt is for.
+- raw_text is a short summary (1-2 sentences) of what the receipt is for.
 
-Return JSON only, no other text:
-{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "payment_handler": null, "total": "123.45 SEK", "raw_text": "summary in receipt's language"}
+Think through the document silently, then output ONLY a single JSON object — no explanation, no markdown fences.
 
-If you can't find a field, use null."""
+Schema:
+{"payment_date": "YYYY-MM-DD", "company_name": "Company Name", "payment_handler": null, "total": "123.45 SEK", "raw_text": "summary in the receipt's language"}
+
+Example (Swedish invoice paid via Klarna, due 2025-12-26):
+{"payment_date": "2025-12-26", "company_name": "Webhallen", "payment_handler": "Klarna", "total": "1299 SEK", "raw_text": "Faktura för datorkomponenter köpta hos Webhallen."}
+
+If a field cannot be found, use null."""
         })
 
         response = self.client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=1024,
+            temperature=0,
+            system=(
+                "You are an expert bookkeeping assistant that reads Swedish and "
+                "international receipts and invoices. You extract structured data "
+                "precisely and never guess at values you cannot see. You always reply "
+                "with a single valid JSON object and nothing else."
+            ),
             messages=[{
                 "role": "user",
                 "content": content
