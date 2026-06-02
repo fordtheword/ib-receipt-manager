@@ -1081,10 +1081,11 @@ async def api_list_receipts(
 # Aliases endpoints
 
 @app.get("/aliases", response_class=HTMLResponse)
-async def aliases_page(request: Request):
+async def aliases_page(request: Request, alias: str = ""):
     return templates.TemplateResponse("aliases.html", {
         "request": request,
         "aliases": database.list_aliases(),
+        "prefill_alias": alias,
     })
 
 

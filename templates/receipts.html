@@ -157,6 +157,20 @@
 .alias-marker:hover {
     opacity: 1;
 }
+.alias-add {
+    font-size: 11px;
+    opacity: 0;
+    margin-left: 6px;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.12s;
+}
+tr:hover .alias-add {
+    opacity: 0.55;
+}
+.alias-add:hover {
+    opacity: 1;
+}
 /* Prevent date and actions column wrapping */
 td:nth-child(2), th:nth-child(2),
 td:last-child, th:last-child {
@@ -287,7 +301,7 @@ td:last-child, th:last-child {
                     <input type="checkbox" class="recurring-checkbox" {% if r.is_recurring %}checked{% endif %} onchange="toggleRecurring({{ r.id }}, this)" title="Set as recurring monthly reminder">
                 </td>
                 <td>{{ r.payment_date or '-' }}</td>
-                <td>{{ r.company_name }}</td>
+                <td>{{ r.company_name }}<a href="/aliases?alias={{ r.company_name | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️</a></td>
                 <td>
                     {% if r.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>

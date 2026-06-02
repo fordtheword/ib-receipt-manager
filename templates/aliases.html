@@ -18,11 +18,11 @@
     <form action="/aliases" method="post" style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; align-items: flex-end;">
         <div style="flex: 1; min-width: 240px;">
             <label for="alias">Alias (the OCR'd name)</label>
-            <input type="text" id="alias" name="alias" required placeholder="apple distribution international ltd.">
+            <input type="text" id="alias" name="alias" required placeholder="apple distribution international ltd." value="{{ prefill_alias }}">
         </div>
         <div style="flex: 1; min-width: 240px;">
             <label for="canonical">Canonical (the preferred name)</label>
-            <input type="text" id="canonical" name="canonical" required placeholder="apple">
+            <input type="text" id="canonical" name="canonical" required placeholder="apple"{% if prefill_alias %} autofocus{% endif %}>
         </div>
         <button type="submit" class="btn btn-success">Add alias</button>
     </form>
