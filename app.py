@@ -344,6 +344,7 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: str | None = 
     return templates.TemplateResponse("receipt.html", {
         "request": request,
         "receipt": receipt,
+        "alias_display_name": database.alias_display_name(receipt.company_name),
         "attachments": attachments,
         "cleanup_files": cleanup_files,
         "ohanterade_configured": ohanterade is not None,
@@ -533,6 +534,14 @@ async def list_receipts(
     now = datetime.now()
     current_month_key = now.strftime("%Y-%m")
 
+    # Alias-resolved display names, so the list reads in the user's preferred
+    # terms everywhere a company name is shown (e.g. 'Telia' not 'Telia Sverige AB').
+    alias_map = database.list_alias_map()
+    alias_display_names = {
+        r.id: database.alias_display_name(r.company_name, aliases=alias_map)
+        for r in receipts
+    }
+
     # Get due reminders for current month
     due_reminders = database.get_due_reminders()
 
@@ -558,6 +567,7 @@ async def list_receipts(
         "available_years": available_years,
         "total_ocr_cost": total_ocr_cost,
         "due_reminders": due_reminders,
+        "alias_display_names": alias_display_names,
         "fulfilled_source_ids": fulfilled_source_ids,
         "fulfilled_receipt_ids": fulfilled_receipt_ids,
         "config_status": config.validate_config(),

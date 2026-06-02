@@ -486,6 +486,23 @@ def _normalize_company(name: str | None, *, aliases: dict[str, str] | None = Non
     return aliases.get(base, base)
 
 
+def alias_display_name(name: str | None, *, aliases: dict[str, str] | None = None) -> str:
+    """Human-facing label for a company after alias resolution.
+
+    If an alias maps this company onto a different canonical name, return that
+    canonical (title-cased) so the UI reads in the user's preferred terms
+    (e.g. 'Telia' instead of 'Telia Sverige AB'). Otherwise return the original
+    name unchanged. Used everywhere a company name is shown to the user.
+    """
+    base = _basic_normalize(name)
+    if not base:
+        return name or ""
+    if aliases is None:
+        aliases = list_alias_map()
+    canonical = aliases.get(base, base)
+    return canonical.title() if canonical != base else (name or "")
+
+
 def find_recurring_by_canonical(company_name: str | None, *, exclude_id: int | None = None) -> list[dict]:
     """Return any other recurring receipts whose canonical name (after aliases)
     matches the given company name. Used to warn before toggling a duplicate
@@ -643,13 +660,10 @@ def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
                 available_slots[slot_key] -= 1
                 implicitly_fulfilled = True
             if is_due and not explicitly_dismissed and not implicitly_fulfilled:
-                # If an alias maps this company onto a different canonical, use
-                # that as the display label so the reminder list reads in the
-                # user's preferred terms (e.g. 'youtube premium' instead of
+                # Resolve the alias so the reminder reads in the user's
+                # preferred terms (e.g. 'youtube premium' instead of
                 # 'Google Commerce Limited').
-                base = _basic_normalize(receipt.company_name)
-                canonical = aliases.get(base, base)
-                display_name = canonical.title() if canonical != base else (receipt.company_name or "")
+                display_name = alias_display_name(receipt.company_name, aliases=aliases)
                 results.append(DueReminder(
                     receipt=receipt,
                     year_month=ym,
