@@ -70,11 +70,11 @@
     <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
         <button onclick="openFolder({{ receipt.id }})" class="btn">📁 Open Folder</button>
 
-        {% if not receipt.dropbox_path %}
-        <button onclick="sendToDropbox({{ receipt.id }}, false)" class="btn btn-warning">Send to Dropbox</button>
+        {% if not receipt.storage_path %}
+        <button onclick="sendToStorage({{ receipt.id }}, false)" class="btn btn-warning">Send to {{ storage_provider_name }}</button>
         {% else %}
-        <span class="status-ok">✓ In Dropbox</span>
-        <button onclick="sendToDropbox({{ receipt.id }}, true)" class="btn" style="background:#e67e22;color:white;" title="Re-upload to Dropbox">🔄 Re-upload</button>
+        <span class="status-ok">✓ In {{ storage_provider_name }}</span>
+        <button onclick="sendToStorage({{ receipt.id }}, true)" class="btn" style="background:#e67e22;color:white;" title="Re-upload to {{ storage_provider_name }}">🔄 Re-upload</button>
         {% endif %}
 
         {% if receipt.email_sent_at %}
@@ -161,21 +161,21 @@ function deleteAttachment(id) {
     }
 }
 
-function sendToDropbox(id, force) {
-    const msg = force ? 'Re-upload to Dropbox?' : 'Send to Dropbox?';
+function sendToStorage(id, force) {
+    const msg = force ? 'Re-upload to {{ storage_provider_name }}?' : 'Send to {{ storage_provider_name }}?';
     if (confirm(msg)) {
-        const url = force ? '/receipt/' + id + '/dropbox?force=true' : '/receipt/' + id + '/dropbox';
+        const url = force ? '/receipt/' + id + '/storage?force=true' : '/receipt/' + id + '/storage';
         fetch(url, { method: 'POST' })
             .then(r => r.json())
             .then(data => {
                 if (data.success) {
-                    alert(force ? 'Re-uploaded to Dropbox!' : 'Sent to Dropbox!');
+                    alert(force ? 'Re-uploaded to {{ storage_provider_name }}!' : 'Sent to {{ storage_provider_name }}!');
                     window.location.reload();
                 } else {
-                    alert('Dropbox failed: ' + (data.error || 'Unknown error'));
+                    alert('Storage failed: ' + (data.error || 'Unknown error'));
                 }
             })
-            .catch(() => alert('Dropbox failed'));
+            .catch(() => alert('Storage failed'));
     }
 }
 
