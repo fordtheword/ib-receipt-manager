@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 
 {% block content %}
 <div class="card">
@@ -31,11 +32,7 @@
             {% for r in receipts %}
             <tr onclick="window.location='/receipt/{{ r.id }}'" style="cursor:pointer">
                 <td>{{ r.payment_date or '-' }}</td>
-                <td>
-                    {% set dn = alias_display_names.get(r.id) %}
-                    {{ dn or r.company_name }}{% if dn and dn != r.company_name %} <span class="alias-marker" title="Aliased from: {{ r.company_name }}">🔗</span>{% endif %}
-                    <a href="/aliases?alias={{ r.company_name | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️ Alias</a>
-                </td>
+                <td>{{ ui.company_name(alias_display_names.get(r.id), r.company_name) }}</td>
                 <td>
                     {% if r.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>

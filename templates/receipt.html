@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 
 {% block title %}Receipt #{{ receipt.id }} - Receipt Manager{% endblock %}
 
@@ -66,7 +67,7 @@ function dismissCleanup() {
         </tr>
         <tr>
             <th>Company</th>
-            <td>{{ alias_display_name or receipt.company_name }}{% if alias_display_name and alias_display_name != receipt.company_name %} <span title="Aliased from: {{ receipt.company_name }}" style="opacity:0.6;">🔗</span>{% endif %}</td>
+            <td>{{ ui.company_name(alias_display_name, receipt.company_name, add_button=false) }}</td>
         </tr>
         {% if receipt.payment_handler %}
         <tr>

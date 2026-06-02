@@ -1,0 +1,12 @@
+{# Renders a company name with alias resolution:
+   - shows the resolved (canonical) name
+   - marks aliased names with a "🔗 alias" badge + a muted "↳ was: <original>" line
+   - optionally appends the "🏷️ Alias" add button (omit on read-only views)
+   display_name: alias-resolved label (may be empty/equal to original)
+   original:     the raw OCR'd company_name #}
+{% macro company_name(display_name, original, add_button=true) -%}
+{{ display_name or original }}
+{%- if display_name and display_name != original %} <span class="badge badge-alias" title="Aliased from: {{ original }}">🔗 alias</span>{% endif %}
+{%- if add_button %} <a href="/aliases?alias={{ original | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️ Alias</a>{% endif %}
+{%- if display_name and display_name != original %}<div class="alias-original">↳ was: {{ original }}</div>{% endif %}
+{%- endmacro %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui %}
 
 {% block title %}All Receipts - Receipt Manager{% endblock %}
 
@@ -204,7 +205,7 @@ td:last-child, th:last-child {
                     {% for rem in due_reminders %}
                     <tr class="reminder-row" id="reminder-top-{{ rem.receipt.id }}-{{ rem.year_month }}">
                         <td>{{ rem.expected_date.isoformat() }}</td>
-                        <td>{{ rem.display_name or rem.receipt.company_name }}{% if rem.display_name and rem.display_name != rem.receipt.company_name %} <span class="alias-marker" title="Aliased from: {{ rem.receipt.company_name }}">🔗</span>{% endif %} <a href="/aliases?alias={{ rem.receipt.company_name | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️ Alias</a></td>
+                        <td>{{ ui.company_name(rem.display_name, rem.receipt.company_name) }}</td>
                         <td>
                             {% if rem.receipt.category == 'leverantörsfaktura' %}
                             <span class="badge badge-lev">Leverantör</span>
@@ -254,7 +255,7 @@ td:last-child, th:last-child {
                     <input type="checkbox" class="recurring-checkbox" checked disabled title="Recurring">
                 </td>
                 <td>{{ rem.expected_date.isoformat() }} (expected)</td>
-                <td>{{ rem.display_name or rem.receipt.company_name }}{% if rem.display_name and rem.display_name != rem.receipt.company_name %} <span class="alias-marker" title="Aliased from: {{ rem.receipt.company_name }}">🔗</span>{% endif %} <a href="/aliases?alias={{ rem.receipt.company_name | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️ Alias</a></td>
+                <td>{{ ui.company_name(rem.display_name, rem.receipt.company_name) }}</td>
                 <td>
                     {% if rem.receipt.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>
@@ -278,11 +279,7 @@ td:last-child, th:last-child {
                     <input type="checkbox" class="recurring-checkbox" {% if r.is_recurring %}checked{% endif %} onchange="toggleRecurring({{ r.id }}, this)" title="Set as recurring monthly reminder">
                 </td>
                 <td>{{ r.payment_date or '-' }}</td>
-                <td>
-                    {% set dn = alias_display_names.get(r.id) %}
-                    {{ dn or r.company_name }}{% if dn and dn != r.company_name %} <span class="alias-marker" title="Aliased from: {{ r.company_name }}">🔗</span>{% endif %}
-                    <a href="/aliases?alias={{ r.company_name | urlencode }}" class="alias-add" onclick="event.stopPropagation()" title="Add alias for this name">🏷️ Alias</a>
-                </td>
+                <td>{{ ui.company_name(alias_display_names.get(r.id), r.company_name) }}</td>
                 <td>
                     {% if r.category == 'leverantörsfaktura' %}
                     <span class="badge badge-lev">Leverantör</span>
