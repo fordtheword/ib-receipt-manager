@@ -50,9 +50,15 @@ def get_ohanterade_folder() -> Path | None:
 async def home(request: Request):
     """Home page with upload form."""
     receipts = database.get_all_receipts(limit=10)
+    alias_map = database.list_alias_map()
+    alias_display_names = {
+        r.id: database.alias_display_name(r.company_name, aliases=alias_map)
+        for r in receipts
+    }
     return templates.TemplateResponse("index.html", {
         "request": request,
         "receipts": receipts,
+        "alias_display_names": alias_display_names,
         "config_status": config.validate_config(),
     })
 
