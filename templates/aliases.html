@@ -58,7 +58,7 @@
     {% endif %}
 
     <div style="margin-top: 25px;">
-        <a href="/" class="btn">Back</a>
+        <a href="/receipts" class="btn" onclick="if (history.length > 1) { history.back(); return false; }">Back</a>
     </div>
 </div>
 {% endblock %}
