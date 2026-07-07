@@ -36,15 +36,19 @@ DROPBOX_LOCAL_PATH = Path(os.getenv("DROPBOX_LOCAL_PATH", ""))
 GOOGLE_DRIVE_LOCAL_PATH = Path(os.getenv("GOOGLE_DRIVE_LOCAL_PATH", ""))
 
 def get_storage_local_path() -> Path | None:
-    """Get the active local storage path based on provider."""
-    if STORAGE_PROVIDER == "google_drive" and GOOGLE_DRIVE_LOCAL_PATH and str(GOOGLE_DRIVE_LOCAL_PATH) != ".":
-        return GOOGLE_DRIVE_LOCAL_PATH
-    elif STORAGE_PROVIDER == "dropbox" and DROPBOX_LOCAL_PATH and str(DROPBOX_LOCAL_PATH) != ".":
-        return DROPBOX_LOCAL_PATH
-    # Fallbacks if path isn't specifically set but might be configured
+    """Get the active local storage path based on provider, or None if not configured.
+
+    Returns None instead of falling back to the current directory — an empty
+    env var becomes Path("."), and silently uploading there looks like success
+    while nothing ever reaches the cloud folder.
+    """
     if STORAGE_PROVIDER == "google_drive":
-        return GOOGLE_DRIVE_LOCAL_PATH
-    return DROPBOX_LOCAL_PATH
+        path = GOOGLE_DRIVE_LOCAL_PATH
+    else:
+        path = DROPBOX_LOCAL_PATH
+    if path and str(path) != ".":
+        return path
+    return None
 
 def get_storage_provider_name() -> str:
     """Get the display name of the storage provider."""
@@ -89,6 +93,6 @@ def validate_config() -> dict[str, bool]:
         "ocr_gpt4": bool(OPENAI_API_KEY),
         "ocr_local": bool(LOCAL_VISION_MODEL and LOCAL_VISION_MMPROJ),
         "ocr_gemma": bool(GEMMA_API_BASE),
-        "storage": bool(storage_path and str(storage_path) != "." and storage_path.exists()),
+        "storage": bool(storage_path and storage_path.exists()),
         "email": bool(SMTP_USERNAME and SMTP_PASSWORD),
     }

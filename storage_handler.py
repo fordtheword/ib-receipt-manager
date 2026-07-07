@@ -10,6 +10,17 @@ from datetime import date
 import config
 
 
+def _storage_root() -> Path:
+    """Get the configured storage root, or fail with an actionable message."""
+    root = config.get_storage_local_path()
+    if root is None:
+        raise RuntimeError(
+            f"{config.get_storage_provider_name()} folder not configured — set "
+            "DROPBOX_LOCAL_PATH (or GOOGLE_DRIVE_LOCAL_PATH) in .env"
+        )
+    return root
+
+
 def build_folder_name(payment_date: date, company_name: str, payment_handler: str | None) -> str:
     """Build the Storage folder name: YYYY-MM-DD CompanyName (Handler).
 
@@ -56,7 +67,7 @@ def upload_receipt(
     folder_name = build_folder_name(payment_date, company_name, payment_handler)
 
     # Create full path: Storage / Year / Folder / File
-    target_dir = config.get_storage_local_path() / year / folder_name
+    target_dir = _storage_root() / year / folder_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # Find unique filename if file already exists in Storage
@@ -81,7 +92,7 @@ def upload_receipt(
 
 def get_full_path(relative_path: str) -> Path:
     """Get full local path from relative Storage path."""
-    return config.get_storage_local_path() / relative_path
+    return _storage_root() / relative_path
 
 
 def copy_attachment_to_folder(source_path: Path, storage_folder: Path) -> Path:
@@ -113,4 +124,4 @@ def get_storage_folder_path(payment_date: date, company_name: str, payment_handl
     """
     year = str(payment_date.year)
     folder_name = build_folder_name(payment_date, company_name, payment_handler)
-    return config.get_storage_local_path() / year / folder_name
+    return _storage_root() / year / folder_name
