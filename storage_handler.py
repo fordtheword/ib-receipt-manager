@@ -10,6 +10,27 @@ from datetime import date
 import config
 
 
+def build_folder_name(payment_date: date, company_name: str, payment_handler: str | None) -> str:
+    """Build the Storage folder name: YYYY-MM-DD CompanyName (Handler).
+
+    Removes characters invalid in Windows folder names and trailing
+    spaces/dots (Windows strips them on mkdir but not in intermediate
+    path components, causing WinError 3 on file writes).
+    """
+    date_str = payment_date.isoformat()
+    company_name = company_name.strip()
+    payment_handler = payment_handler.strip() if payment_handler else None
+
+    if payment_handler and payment_handler != company_name:
+        folder_name = f"{date_str} {company_name} ({payment_handler})"
+    else:
+        folder_name = f"{date_str} {company_name}"
+
+    for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
+        folder_name = folder_name.replace(char, '')
+    return folder_name.strip(' .')
+
+
 def upload_receipt(
     source_path: Path,
     payment_date: date,
@@ -31,24 +52,15 @@ def upload_receipt(
     Returns:
         Relative path to the uploaded file (for database storage)
     """
-    # Build folder name: YYYY-MM-DD CompanyName (Handler)
-    date_str = payment_date.isoformat()
     year = str(payment_date.year)
-
-    if payment_handler and payment_handler != company_name:
-        folder_name = f"{date_str} {company_name} ({payment_handler})"
-    else:
-        folder_name = f"{date_str} {company_name}"
-
-    # Clean folder name of invalid characters
-    for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-        folder_name = folder_name.replace(char, '')
+    folder_name = build_folder_name(payment_date, company_name, payment_handler)
 
     # Create full path: Storage / Year / Folder / File
     target_dir = config.get_storage_local_path() / year / folder_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # Find unique filename if file already exists in Storage
+    stored_filename = stored_filename.strip()
     target_path = target_dir / stored_filename
     if target_path.exists():
         base = stored_filename.rsplit('.', 1)[0]
@@ -99,16 +111,6 @@ def get_storage_folder_path(payment_date: date, company_name: str, payment_handl
     Returns:
         Full path to the Cloud Storage folder
     """
-    date_str = payment_date.isoformat()
     year = str(payment_date.year)
-
-    if payment_handler and payment_handler != company_name:
-        folder_name = f"{date_str} {company_name} ({payment_handler})"
-    else:
-        folder_name = f"{date_str} {company_name}"
-
-    # Clean folder name of invalid characters
-    for char in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
-        folder_name = folder_name.replace(char, '')
-
+    folder_name = build_folder_name(payment_date, company_name, payment_handler)
     return config.get_storage_local_path() / year / folder_name

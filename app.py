@@ -211,6 +211,9 @@ async def process_receipt(
     reminder_year_month: str | None = Form(default=None),
 ):
     """Process confirmed receipt: save to DB, create staging folder structure, send email."""
+    company_name = company_name.strip()
+    payment_handler = payment_handler.strip()
+
     # Parse date
     try:
         parsed_date = date.fromisoformat(payment_date) if payment_date else None
@@ -394,6 +397,9 @@ async def save_receipt_edit(
     notes: str = Form(""),
 ):
     """Save edited receipt."""
+    company_name = company_name.strip()
+    payment_handler = payment_handler.strip()
+
     receipt = database.get_receipt(receipt_id)
     if not receipt:
         raise HTTPException(status_code=404, detail="Receipt not found")
