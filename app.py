@@ -8,7 +8,7 @@ from datetime import datetime, date
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, UploadFile, Form, Request, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, Request, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -339,13 +339,13 @@ async def process_receipt(
         for extra_file in extra_files:
             if extra_file.filename:
                 cleanup_files.append(extra_file.filename)
-        redirect_url += f"?cleanup={','.join(quote(f, safe='') for f in cleanup_files)}"
+        redirect_url += "?" + "&".join(f"cleanup={quote(f, safe='')}" for f in cleanup_files)
 
     return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @app.get("/receipt/{receipt_id}", response_class=HTMLResponse)
-async def view_receipt(request: Request, receipt_id: int, cleanup: str | None = None):
+async def view_receipt(request: Request, receipt_id: int, cleanup: list[str] = Query([])):
     """View a single receipt."""
     receipt = database.get_receipt(receipt_id)
     if not receipt:
@@ -353,8 +353,8 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: str | None = 
 
     attachments = database.get_attachments(receipt_id)
 
-    # Parse cleanup filenames if provided
-    cleanup_files = cleanup.split(',') if cleanup else []
+    # Cleanup filenames, if provided (repeated ?cleanup= query params)
+    cleanup_files = cleanup
     ohanterade = get_ohanterade_folder()
 
     return templates.TemplateResponse("receipt.html", {
