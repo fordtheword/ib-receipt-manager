@@ -5,26 +5,26 @@
 {% block content %}
 <div class="card">
     <h2>Company Aliases</h2>
-    <p class="text-muted" style="margin-bottom: 20px;">
+    <p style="margin-bottom: 10px; line-height: 1.5;">
         Collapse OCR variations onto a single canonical name so reminders match correctly.
         Example: alias <code>apple distribution international ltd.</code> &rarr; canonical <code>apple</code>
         means a receipt OCR'd as &ldquo;Apple Distribution International Ltd.&rdquo; will be treated as
         the same vendor as &ldquo;Apple&rdquo; for reminder fulfillment.
     </p>
-    <p class="text-muted" style="margin-bottom: 20px;">
+    <p class="text-muted" style="margin-bottom: 25px;">
         Names are stored normalized (lowercase, trimmed, text before the first comma).
     </p>
 
-    <form action="/aliases" method="post" style="display: flex; gap: 10px; margin-bottom: 25px; flex-wrap: wrap; align-items: flex-end;">
-        <div style="flex: 1; min-width: 240px;">
+    <form action="/aliases" method="post" style="display: flex; gap: 15px; margin-bottom: 30px; flex-wrap: wrap; align-items: flex-end;">
+        <div class="form-group" style="flex: 1; min-width: 240px; margin-bottom: 0;">
             <label for="alias">Alias (the OCR'd name)</label>
             <input type="text" id="alias" name="alias" required placeholder="apple distribution international ltd." value="{{ prefill_alias }}">
         </div>
-        <div style="flex: 1; min-width: 240px;">
+        <div class="form-group" style="flex: 1; min-width: 240px; margin-bottom: 0;">
             <label for="canonical">Canonical (the preferred name)</label>
             <input type="text" id="canonical" name="canonical" required placeholder="apple"{% if prefill_alias %} autofocus{% endif %}>
         </div>
-        <button type="submit" class="btn btn-success">Add alias</button>
+        <button type="submit" class="btn btn-success" style="padding: 10px 20px;">Add alias</button>
     </form>
 
     {% if aliases %}

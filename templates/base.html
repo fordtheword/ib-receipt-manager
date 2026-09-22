@@ -12,7 +12,8 @@
             --text-color: #2c3e50;
             --text-muted: #7f8c8d;
             --border-color: #ddd;
-            --table-hover: #f8f9fa;
+            --table-hover: #eef1f4;
+            --table-stripe: #f7f9fb;
             --input-bg: white;
         }
         [data-theme="dark"] {
@@ -22,7 +23,8 @@
             --text-color: #eee;
             --text-muted: #aaa;
             --border-color: #333;
-            --table-hover: #1f2940;
+            --table-hover: #243352;
+            --table-stripe: #1b2848;
             --input-bg: #1a1a2e;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -153,7 +155,8 @@
             border-bottom: 1px solid var(--border-color);
         }
         th { background: var(--table-hover); font-weight: 600; }
-        tr:hover { background: var(--table-hover); }
+        tbody tr:nth-child(even) { background: var(--table-stripe); }
+        tbody tr:hover { background: var(--table-hover); }
         .badge {
             display: inline-block;
             padding: 3px 8px;
