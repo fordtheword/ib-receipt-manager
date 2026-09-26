@@ -79,7 +79,12 @@ function dismissCleanup() {
         </tr>
         <tr>
             <th>Company</th>
-            <td>{{ ui.company_name(alias_display_name, receipt.company_name, add_button=false) }}</td>
+            <td>
+                {{ ui.company_name(alias_display_name, receipt.company_name, add_button=false) }}
+                {% if receipt.alias_opt_out and alias_target_ignored %}
+                <div class="text-muted" style="font-size: 0.85em;">Not {{ alias_target_ignored }} (alias ignored)</div>
+                {% endif %}
+            </td>
         </tr>
         {% if receipt.payment_handler %}
         <tr>

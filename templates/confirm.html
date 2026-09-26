@@ -34,6 +34,18 @@
             <input type="text" id="company_name" name="company_name" value="{{ company_name }}" required>
         </div>
 
+        {% if alias_target %}
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                <input type="checkbox" name="alias_opt_out" value="1" {% if alias_opt_out_suggested %}checked{% endif %} style="width: auto;">
+                This is NOT a {{ alias_target }} receipt
+            </label>
+            {% if alias_opt_out_suggested %}
+            <small class="text-muted">auto-detected: '{{ alias_opt_out_hint }}'</small>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="form-group">
             <label for="payment_handler">Payment Handler (optional)</label>
             <input type="text" id="payment_handler" name="payment_handler" value="{{ payment_handler }}" placeholder="e.g., Klarna, Avarda">

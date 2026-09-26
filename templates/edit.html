@@ -23,6 +23,15 @@
             <small class="text-muted">If paid via Klarna, Avarda, etc.</small>
         </div>
 
+        {% if alias_target %}
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
+                <input type="checkbox" name="alias_opt_out" value="1" {% if receipt.alias_opt_out %}checked{% endif %} style="width: auto;">
+                This is NOT a {{ alias_target }} receipt
+            </label>
+        </div>
+        {% endif %}
+
         <div class="form-group">
             <label for="category">Category</label>
             <select id="category" name="category" required>

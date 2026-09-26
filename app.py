@@ -71,7 +71,7 @@ async def home(request: Request):
     receipts = database.get_all_receipts(limit=10)
     alias_map = database.list_alias_map()
     alias_display_names = {
-        r.id: database.alias_display_name(r.company_name, aliases=alias_map)
+        r.id: database.alias_display_name(r.company_name, aliases=alias_map, opt_out=r.alias_opt_out)
         for r in receipts
     }
     return templates.TemplateResponse("index.html", {
@@ -150,6 +150,7 @@ async def upload_receipt(request: Request, file: UploadFile = File(...), backend
         "current_backend": config.OCR_BACKEND,
         "manual": False,
         "config_status": config.validate_config(),
+        **_alias_opt_out_context(result.company_name or "", [result.raw_text, file.filename]),
     })
 
 
@@ -189,7 +190,21 @@ async def retry_ocr(request: Request, filename: str = Form(...), backend: str = 
         "ocr_cost": result.ocr_cost,
         "current_backend": backend,
         "config_status": config.validate_config(),
+        **_alias_opt_out_context(result.company_name or "", [result.raw_text, original_filename or filename]),
     })
+
+
+def _alias_opt_out_context(company_name: str, text_blobs: list[str]) -> dict:
+    """Compute the confirm-screen alias opt-out fields: the alias target (if
+    any applies to this company), whether to pre-tick the "NOT <alias>"
+    checkbox, and which keyword triggered the pre-tick (for the UI hint)."""
+    target = database.alias_target(company_name)
+    matched = database.suggest_alias_opt_out(company_name, text_blobs) if target else None
+    return {
+        "alias_target": target,
+        "alias_opt_out_suggested": matched is not None,
+        "alias_opt_out_hint": matched,
+    }
 
 
 def sanitize_for_path(name: str) -> str:
@@ -228,10 +243,12 @@ async def process_receipt(
     extra_files: list[UploadFile] = File(default=[]),
     reminder_source_id: int | None = Form(default=None),
     reminder_year_month: str | None = Form(default=None),
+    alias_opt_out: str = Form(""),
 ):
     """Process confirmed receipt: save to DB, create staging folder structure, send email."""
     company_name = company_name.strip()
     payment_handler = payment_handler.strip()
+    alias_opt_out = bool(alias_opt_out)
 
     # Parse date
     try:
@@ -279,6 +296,7 @@ async def process_receipt(
         email_sent_at=None,
         notes=notes or None,
         ocr_cost=ocr_cost if ocr_cost > 0 else None,
+        alias_opt_out=alias_opt_out,
     )
 
     # Save to database first (so we have receipt_id for attachments)
@@ -382,7 +400,8 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: list[str] = Q
         "storage_provider_name": config.get_storage_provider_name(),
         "request": request,
         "receipt": receipt,
-        "alias_display_name": database.alias_display_name(receipt.company_name),
+        "alias_display_name": database.alias_display_name(receipt.company_name, opt_out=receipt.alias_opt_out),
+        "alias_target_ignored": database.alias_target(receipt.company_name),
         "attachments": attachments,
         "cleanup_files": cleanup_files,
         "ohanterade_configured": ohanterade is not None,
@@ -405,6 +424,7 @@ async def edit_receipt_form(request: Request, receipt_id: int):
         "request": request,
         "receipt": receipt,
         "attachments": attachments,
+        "alias_target": database.alias_target(receipt.company_name),
     })
 
 
@@ -417,10 +437,12 @@ async def save_receipt_edit(
     payment_handler: str = Form(""),
     category: str = Form(...),
     notes: str = Form(""),
+    alias_opt_out: str = Form(""),
 ):
     """Save edited receipt."""
     company_name = company_name.strip()
     payment_handler = payment_handler.strip()
+    alias_opt_out = bool(alias_opt_out)
 
     receipt = database.get_receipt(receipt_id)
     if not receipt:
@@ -508,6 +530,10 @@ async def save_receipt_edit(
         "stored_filename": stored_filename,
         "notes": notes or None,
     }
+    # The toggle is only rendered when an alias applies; otherwise leave the
+    # stored flag alone so it survives an alias being removed and re-added.
+    if database.alias_target(company_name):
+        update_fields["alias_opt_out"] = alias_opt_out
     if new_staging_path:
         update_fields["staging_path"] = new_staging_path
 
@@ -581,7 +607,7 @@ async def list_receipts(
     # terms everywhere a company name is shown (e.g. 'Telia' not 'Telia Sverige AB').
     alias_map = database.list_alias_map()
     alias_display_names = {
-        r.id: database.alias_display_name(r.company_name, aliases=alias_map)
+        r.id: database.alias_display_name(r.company_name, aliases=alias_map, opt_out=r.alias_opt_out)
         for r in receipts
     }
 
@@ -1171,14 +1197,21 @@ async def aliases_page(request: Request, alias: str = ""):
 
 
 @app.post("/aliases")
-async def create_alias(alias: str = Form(...), canonical: str = Form(...)):
-    database.add_alias(alias, canonical)
+async def create_alias(alias: str = Form(...), canonical: str = Form(...), not_keywords: str = Form("")):
+    database.add_alias(alias, canonical, not_keywords=not_keywords or None)
     return RedirectResponse(url="/aliases", status_code=303)
 
 
 @app.post("/aliases/{alias_id}/delete")
 async def remove_alias(alias_id: int):
     database.delete_alias(alias_id)
+    return RedirectResponse(url="/aliases", status_code=303)
+
+
+@app.post("/aliases/{alias_id}/keywords")
+async def update_alias_keywords(alias_id: int, not_keywords: str = Form("")):
+    """Update an alias's 'NOT this alias' auto-detect keywords (comma-separated)."""
+    database.set_alias_keywords(alias_id, not_keywords)
     return RedirectResponse(url="/aliases", status_code=303)
 
 
@@ -1292,6 +1325,7 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
             "reminder_source_id": receipt.id,
             "category_prefill": receipt.category,
             "config_status": config.validate_config(),
+            **_alias_opt_out_context(receipt.company_name, [file.filename]),
         })
 
     # Run OCR extraction
@@ -1323,6 +1357,10 @@ async def upload_reminder(request: Request, receipt_id: int, file: UploadFile = 
         "reminder_year_month": year_month,
         "category_prefill": receipt.category,
         "config_status": config.validate_config(),
+        **_alias_opt_out_context(
+            result.company_name or receipt.company_name,
+            [result.raw_text, file.filename],
+        ),
     })
 
 

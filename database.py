@@ -24,6 +24,7 @@ class Receipt:
     notes: str | None = None  # Custom message for email
     ocr_cost: float | None = None  # API cost in USD
     is_recurring: bool = False  # Monthly reminder enabled
+    alias_opt_out: bool = False  # "This is NOT <alias>" — skip alias resolution for this receipt
     created_at: datetime | None = None
 
 
@@ -116,6 +117,13 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Add alias_opt_out column if it doesn't exist (migration)
+    try:
+        conn.execute("ALTER TABLE receipts ADD COLUMN alias_opt_out INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # Create reminder_dismissals table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reminder_dismissals (
@@ -150,6 +158,16 @@ def init_db():
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Add not_keywords column if it doesn't exist (migration).
+    # Comma-separated, case-insensitive keywords meaning "a receipt mentioning
+    # any of these is NOT this alias" — drives the opt-out auto-detect.
+    try:
+        conn.execute("ALTER TABLE company_aliases ADD COLUMN not_keywords TEXT DEFAULT ''")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     conn.commit()
     conn.close()
 
@@ -160,8 +178,9 @@ def add_receipt(receipt: Receipt) -> int:
     cursor = conn.execute("""
         INSERT INTO receipts (
             original_filename, stored_filename, payment_date, company_name,
-            payment_handler, category, staging_path, storage_path, email_sent_to, email_sent_at, notes, ocr_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            payment_handler, category, staging_path, storage_path, email_sent_to, email_sent_at, notes, ocr_cost,
+            is_recurring, alias_opt_out
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         receipt.original_filename,
         receipt.stored_filename,
@@ -175,6 +194,8 @@ def add_receipt(receipt: Receipt) -> int:
         receipt.email_sent_at.isoformat() if receipt.email_sent_at else None,
         receipt.notes,
         receipt.ocr_cost,
+        int(receipt.is_recurring),
+        int(receipt.alias_opt_out),
     ))
     conn.commit()
     receipt_id = cursor.lastrowid
@@ -349,6 +370,7 @@ def _row_to_receipt(row: sqlite3.Row) -> Receipt:
         notes=row['notes'] if 'notes' in row.keys() else None,
         ocr_cost=row['ocr_cost'] if 'ocr_cost' in row.keys() else None,
         is_recurring=bool(row['is_recurring']) if 'is_recurring' in row.keys() and row['is_recurring'] else False,
+        alias_opt_out=bool(row['alias_opt_out']) if 'alias_opt_out' in row.keys() and row['alias_opt_out'] else False,
         created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
     )
 
@@ -474,7 +496,7 @@ def _basic_normalize(name: str | None) -> str:
     return name.split(",", 1)[0].strip().lower()
 
 
-def _normalize_company(name: str | None, *, aliases: dict[str, str] | None = None) -> str:
+def _normalize_company(name: str | None, *, aliases: dict[str, str] | None = None, opt_out: bool = False) -> str:
     """Canonical key for matching company names across receipts.
 
     Step 1: take the text before the first comma, lowercase/strip it.
@@ -483,30 +505,56 @@ def _normalize_company(name: str | None, *, aliases: dict[str, str] | None = Non
     Step 2: consult the company_aliases table — if the result matches an alias,
     return that alias's canonical instead. Lets the user collapse OCR variants
     (e.g. 'Apple Distribution International Ltd.' -> 'apple') onto one key.
+
+    If opt_out is True, alias resolution is skipped entirely for this receipt
+    (a per-receipt "NOT <alias>" toggle) — the base normalized name is
+    returned as-is, so it won't collide with the alias's other receipts.
     """
     base = _basic_normalize(name)
     if not base:
         return ""
+    if opt_out:
+        return base
     if aliases is None:
         aliases = list_alias_map()
     return aliases.get(base, base)
 
 
-def alias_display_name(name: str | None, *, aliases: dict[str, str] | None = None) -> str:
+def alias_display_name(name: str | None, *, aliases: dict[str, str] | None = None, opt_out: bool = False) -> str:
     """Human-facing label for a company after alias resolution.
 
     If an alias maps this company onto a different canonical name, return that
     canonical (title-cased) so the UI reads in the user's preferred terms
     (e.g. 'Telia' instead of 'Telia Sverige AB'). Otherwise return the original
     name unchanged. Used everywhere a company name is shown to the user.
+
+    If opt_out is True, alias resolution is skipped and the original name is
+    returned unchanged (per-receipt "NOT <alias>" toggle).
     """
     base = _basic_normalize(name)
     if not base:
+        return name or ""
+    if opt_out:
         return name or ""
     if aliases is None:
         aliases = list_alias_map()
     canonical = aliases.get(base, base)
     return canonical.title() if canonical != base else (name or "")
+
+
+def alias_target(name: str | None, *, aliases: dict[str, str] | None = None) -> str | None:
+    """Title-cased canonical name if an alias applies to this company, else None.
+
+    Used by the UI to decide whether to show the "NOT <alias>" opt-out toggle
+    and to label it.
+    """
+    base = _basic_normalize(name)
+    if not base:
+        return None
+    if aliases is None:
+        aliases = list_alias_map()
+    canonical = aliases.get(base, base)
+    return canonical.title() if canonical != base else None
 
 
 def find_recurring_by_canonical(company_name: str | None, *, exclude_id: int | None = None) -> list[dict]:
@@ -519,7 +567,7 @@ def find_recurring_by_canonical(company_name: str | None, *, exclude_id: int | N
         return []
     conn = get_connection()
     rows = conn.execute(
-        "SELECT id, payment_date, company_name FROM receipts WHERE is_recurring=1"
+        "SELECT id, payment_date, company_name, alias_opt_out FROM receipts WHERE is_recurring=1"
     ).fetchall()
     conn.close()
     aliases = list_alias_map()
@@ -527,7 +575,8 @@ def find_recurring_by_canonical(company_name: str | None, *, exclude_id: int | N
     for r in rows:
         if exclude_id is not None and r["id"] == exclude_id:
             continue
-        if _normalize_company(r["company_name"], aliases=aliases) == target:
+        r_opt_out = bool(r["alias_opt_out"]) if "alias_opt_out" in r.keys() and r["alias_opt_out"] else False
+        if _normalize_company(r["company_name"], aliases=aliases, opt_out=r_opt_out) == target:
             matches.append(dict(r))
     return matches
 
@@ -547,16 +596,28 @@ def list_aliases() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def add_alias(alias: str, canonical: str) -> bool:
+def add_alias(alias: str, canonical: str, not_keywords: str | None = None) -> bool:
+    """Add or replace an alias.
+
+    not_keywords=None (the default, e.g. from the "add alias" form which has
+    no keywords field of its own) preserves whatever keywords the alias
+    already had — INSERT OR REPLACE would otherwise reset the column to its
+    default since it isn't in the column list. Pass "" explicitly to clear it.
+    """
     a = _basic_normalize(alias)
     c = _basic_normalize(canonical)
     if not a or not c:
         return False
     conn = get_connection()
     try:
+        if not_keywords is None:
+            existing = conn.execute(
+                "SELECT not_keywords FROM company_aliases WHERE alias = ?", (a,)
+            ).fetchone()
+            not_keywords = existing["not_keywords"] if existing and existing["not_keywords"] else ""
         conn.execute(
-            "INSERT OR REPLACE INTO company_aliases (alias, canonical) VALUES (?, ?)",
-            (a, c),
+            "INSERT OR REPLACE INTO company_aliases (alias, canonical, not_keywords) VALUES (?, ?, ?)",
+            (a, c, not_keywords),
         )
         conn.commit()
         return True
@@ -569,6 +630,57 @@ def delete_alias(alias_id: int) -> None:
     conn.execute("DELETE FROM company_aliases WHERE id=?", (alias_id,))
     conn.commit()
     conn.close()
+
+
+def set_alias_keywords(alias_id: int, not_keywords: str) -> bool:
+    """Update the 'not_keywords' opt-out list for an existing alias."""
+    conn = get_connection()
+    cursor = conn.execute(
+        "UPDATE company_aliases SET not_keywords = ? WHERE id = ?",
+        (not_keywords.strip(), alias_id),
+    )
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+
+def _parse_keywords(not_keywords: str | None) -> list[str]:
+    """Comma-separated keyword string -> list of lowercased, stripped, non-empty keywords."""
+    if not not_keywords:
+        return []
+    return [k.strip().lower() for k in not_keywords.split(",") if k.strip()]
+
+
+def suggest_alias_opt_out(company_name: str | None, text_blobs: list[str]) -> str | None:
+    """Auto-detect whether a receipt should have the alias opt-out pre-ticked.
+
+    Returns the matched keyword (for the UI hint, e.g. 'google play') if an
+    alias applies to company_name AND one of its own 'not_keywords' appears in
+    any of the given texts (OCR raw_text / notes prefill, original filename).
+    Returns None if no alias applies, or the alias has no keywords, or none
+    of them match.
+    """
+    base = _basic_normalize(company_name)
+    if not base:
+        return None
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT canonical, not_keywords FROM company_aliases WHERE alias = ?", (base,)
+    ).fetchone()
+    conn.close()
+    if not row or row["canonical"] == base:
+        return None
+    keywords = _parse_keywords(row["not_keywords"])
+    if not keywords:
+        return None
+    # Normalize underscores/hyphens to spaces so a keyword like 'google play'
+    # still matches a filename like 'receipt_google_play_order.pdf'.
+    combined = " ".join(t for t in text_blobs if t).lower().replace("_", " ").replace("-", " ")
+    for kw in keywords:
+        if kw in combined:
+            return kw
+    return None
 
 
 @dataclass
@@ -614,7 +726,7 @@ def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
     # company name in the reminder's target month, treat that month as covered
     # — even if it was uploaded via drag-drop instead of the reminder flow.
     fulfilling_rows = conn.execute("""
-        SELECT id, company_name, strftime('%Y-%m', payment_date) AS ym
+        SELECT id, company_name, alias_opt_out, strftime('%Y-%m', payment_date) AS ym
         FROM receipts
         WHERE payment_date IS NOT NULL AND company_name IS NOT NULL
     """).fetchall()
@@ -629,7 +741,8 @@ def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
 
     receipts_by_company_month: dict[tuple[str, str], set[int]] = {}
     for fr in fulfilling_rows:
-        norm = _normalize_company(fr['company_name'], aliases=aliases)
+        fr_opt_out = bool(fr['alias_opt_out']) if 'alias_opt_out' in fr.keys() and fr['alias_opt_out'] else False
+        norm = _normalize_company(fr['company_name'], aliases=aliases, opt_out=fr_opt_out)
         if not norm:
             continue
         receipts_by_company_month.setdefault((norm, fr['ym']), set()).add(fr['id'])
@@ -645,7 +758,7 @@ def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
     results: list[DueReminder] = []
     for row in rows:
         receipt = _row_to_receipt(row)
-        cname = _normalize_company(receipt.company_name, aliases=aliases)
+        cname = _normalize_company(receipt.company_name, aliases=aliases, opt_out=receipt.alias_opt_out)
         # Walk from the month AFTER the source month up to target month.
         year, month = receipt.payment_date.year, receipt.payment_date.month
         month += 1
@@ -669,7 +782,7 @@ def get_due_reminders(target_date: date | None = None) -> list[DueReminder]:
                 # Resolve the alias so the reminder reads in the user's
                 # preferred terms (e.g. 'youtube premium' instead of
                 # 'Google Commerce Limited').
-                display_name = alias_display_name(receipt.company_name, aliases=aliases)
+                display_name = alias_display_name(receipt.company_name, aliases=aliases, opt_out=receipt.alias_opt_out)
                 results.append(DueReminder(
                     receipt=receipt,
                     year_month=ym,
