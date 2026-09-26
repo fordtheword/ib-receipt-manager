@@ -7,10 +7,10 @@
 {% if cleanup_files and ohanterade_configured %}
 <div id="cleanupBanner" class="card" style="background: #2d4a3e; border: 1px solid #4a7c59; margin-bottom: 20px;">
     <h3 style="margin-bottom: 10px;">🗑️ Delete Original Files?</h3>
-    <p style="margin-bottom: 10px;">The following files can be deleted from <code>{{ ohanterade_path }}</code>:</p>
+    <p style="margin-bottom: 10px;">The following files can be deleted from <code>{{ ohanterade_path }}</code> (or <code>{{ downloads_path }}</code> if they're not there):</p>
     <ul style="margin-bottom: 15px; padding-left: 20px;">
         {% for f in cleanup_files %}
-        <li>{{ f }}</li>
+        <li>{{ f.name }}</li>
         {% endfor %}
     </ul>
     <div style="display: flex; gap: 10px;">
@@ -22,10 +22,13 @@
 const cleanupFiles = {{ cleanup_files | tojson }};
 
 function deleteOriginals() {
-    if (!confirm('Delete ' + cleanupFiles.length + ' file(s) from Kvitton ohanterade?')) return;
+    if (!confirm('Delete ' + cleanupFiles.length + ' original file(s)?')) return;
 
     const formData = new FormData();
-    cleanupFiles.forEach(f => formData.append('filenames', f));
+    cleanupFiles.forEach(f => {
+        formData.append('filenames', f.name);
+        formData.append('hashes', f.sha);
+    });
 
     fetch('/delete-originals', {
         method: 'POST',
@@ -33,15 +36,24 @@ function deleteOriginals() {
     })
     .then(r => r.json())
     .then(data => {
+        const lines = [];
+        if (data.error) {
+            lines.push(data.error);
+        }
         if (data.deleted && data.deleted.length > 0) {
-            alert('Deleted: ' + data.deleted.join(', '));
+            lines.push('Deleted: ' + data.deleted.join(', '));
+        }
+        if (data.mismatched && data.mismatched.length > 0) {
+            lines.push('Kept — a file with this name exists but its contents differ from what you uploaded: ' + data.mismatched.join(', '));
         }
         if (data.not_found && data.not_found.length > 0) {
-            alert('Not found (maybe already deleted): ' + data.not_found.join(', '));
+            lines.push('Not found, nothing deleted: ' + data.not_found.join(', ')
+                + '\nLooked in: ' + (data.searched || []).join(', '));
         }
         if (data.errors && data.errors.length > 0) {
-            alert('Errors: ' + data.errors.join(', '));
+            lines.push('Errors: ' + data.errors.join(', '));
         }
+        if (lines.length > 0) alert(lines.join('\n\n'));
         dismissCleanup();
     })
     .catch(() => alert('Failed to delete files'));

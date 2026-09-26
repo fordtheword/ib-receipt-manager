@@ -1,5 +1,6 @@
 """Receipt Manager - FastAPI Application."""
 
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,24 @@ def get_ohanterade_folder() -> Path | None:
     if config.OHANTERADE_FOLDER and config.OHANTERADE_FOLDER.exists():
         return config.OHANTERADE_FOLDER
     return None
+
+
+def _sha256(path: Path) -> str:
+    """Hex SHA-256 of a file's contents."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _parse_cleanup_entry(entry: str) -> dict:
+    """Split a '<sha256>:<filename>' cleanup entry. Entries without a hash
+    (old links) are returned with an empty sha."""
+    sha, sep, name = entry.partition(":")
+    if sep and len(sha) == 64 and all(c in "0123456789abcdef" for c in sha):
+        return {"name": name, "sha": sha}
+    return {"name": entry, "sha": ""}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -334,12 +353,14 @@ async def process_receipt(
     redirect_url = f"/receipt/{receipt_id}"
     ohanterade = get_ohanterade_folder()
     if ohanterade:
-        # Collect original filenames for potential cleanup
-        cleanup_files = [original_filename or filename]  # Main receipt
-        for extra_file in extra_files:
-            if extra_file.filename:
-                cleanup_files.append(extra_file.filename)
-        redirect_url += "?" + "&".join(f"cleanup={quote(f, safe='')}" for f in cleanup_files)
+        # Collect original filenames + content hashes for potential cleanup.
+        # The hash lets the Downloads fallback delete only the exact same file.
+        cleanup_files = [(original_filename or filename, _sha256(staged_file_path))]  # Main receipt
+        extra_names = [f.filename for f in extra_files if f.filename]
+        cleanup_files += [(name, _sha256(path)) for name, path in zip(extra_names, extra_paths)]
+        redirect_url += "?" + "&".join(
+            f"cleanup={quote(f'{sha}:{name}', safe='')}" for name, sha in cleanup_files
+        )
 
     return RedirectResponse(url=redirect_url, status_code=303)
 
@@ -353,8 +374,8 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: list[str] = Q
 
     attachments = database.get_attachments(receipt_id)
 
-    # Cleanup filenames, if provided (repeated ?cleanup= query params)
-    cleanup_files = cleanup
+    # Cleanup files, if provided (repeated ?cleanup=<sha256>:<filename> query params)
+    cleanup_files = [_parse_cleanup_entry(c) for c in cleanup]
     ohanterade = get_ohanterade_folder()
 
     return templates.TemplateResponse("receipt.html", {
@@ -366,6 +387,7 @@ async def view_receipt(request: Request, receipt_id: int, cleanup: list[str] = Q
         "cleanup_files": cleanup_files,
         "ohanterade_configured": ohanterade is not None,
         "ohanterade_path": str(ohanterade) if ohanterade else "",
+        "downloads_path": str(config.DOWNLOADS_FOLDER),
     })
 
 
@@ -993,47 +1015,72 @@ async def delete_receipt(receipt_id: int):
 
 
 @app.post("/delete-originals")
-async def delete_original_files(filenames: list[str] = Form(...)):
-    """Delete original files from the ohanterade folder after processing."""
+async def delete_original_files(filenames: list[str] = Form(...), hashes: list[str] = Form([])):
+    """Delete original files after processing.
+
+    Looks in the ohanterade folder first, then falls back to the Downloads
+    folder. A file is only deleted if its contents match the uploaded file's
+    hash (the Downloads fallback requires a hash; ohanterade accepts a bare
+    name for old links without one).
+    """
     ohanterade = get_ohanterade_folder()
     if not ohanterade:
         return {"success": False, "error": "Ohanterade folder not configured"}
 
+    locations = [("Kvitton ohanterade", ohanterade, False)]
+    downloads = config.DOWNLOADS_FOLDER
+    if downloads.exists() and downloads.resolve() != ohanterade.resolve():
+        locations.append(("Downloads", downloads, True))
+
     deleted = []
+    mismatched = []
     not_found = []
     errors = []
 
-    for filename in filenames:
+    for i, filename in enumerate(filenames):
+        sha = hashes[i] if i < len(hashes) else ""
+
         # Security: only allow simple filenames, no path traversal
         if '/' in filename or '\\' in filename or '..' in filename:
             errors.append(f"{filename}: Invalid filename")
             continue
 
-        file_path = ohanterade / filename
-
-        # Extra security: ensure the resolved path is still within ohanterade folder
-        try:
-            resolved = file_path.resolve()
-            if not str(resolved).startswith(str(ohanterade.resolve())):
-                errors.append(f"{filename}: Path traversal blocked")
+        found_different = False
+        for label, folder, needs_hash in locations:
+            if needs_hash and not sha:
                 continue
-        except Exception:
-            errors.append(f"{filename}: Invalid path")
-            continue
-
-        if file_path.exists():
+            file_path = folder / filename
+            # Extra security: the resolved path must sit directly in the folder
             try:
+                if file_path.resolve().parent != folder.resolve():
+                    errors.append(f"{filename}: Path traversal blocked")
+                    break
+            except Exception:
+                errors.append(f"{filename}: Invalid path")
+                break
+            if not file_path.is_file():
+                continue
+            try:
+                if sha and _sha256(file_path) != sha:
+                    found_different = True
+                    continue
                 file_path.unlink()
-                deleted.append(filename)
+                deleted.append(f"{filename} (from {label})")
             except Exception as e:
                 errors.append(f"{filename}: {str(e)}")
+            break
         else:
-            not_found.append(filename)
+            if found_different:
+                mismatched.append(filename)
+            else:
+                not_found.append(filename)
 
     return {
-        "success": len(deleted) > 0 or (len(not_found) > 0 and len(errors) == 0),
+        "success": len(errors) == 0,
         "deleted": deleted,
+        "mismatched": mismatched,
         "not_found": not_found,
+        "searched": [str(folder) for _, folder, _ in locations],
         "errors": errors,
     }
 

@@ -60,6 +60,10 @@ def get_storage_provider_name() -> str:
 # Source folder for unprocessed receipts (for cleanup after processing)
 OHANTERADE_FOLDER = Path(os.getenv("OHANTERADE_FOLDER", "")) if os.getenv("OHANTERADE_FOLDER") else None
 
+# Fallback folder checked when an original isn't in the ohanterade folder.
+# Only files whose contents match the upload exactly are deleted from here.
+DOWNLOADS_FOLDER = Path(os.getenv("DOWNLOADS_FOLDER") or Path.home() / "Downloads")
+
 # Email (SMTP)
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
