@@ -405,3 +405,46 @@ def test_keywords_route_updates_alias(db, monkeypatch):
     assert resp.status_code == 303
     updated = database.list_aliases()[0]
     assert updated["not_keywords"] == "google play, play store"
+
+
+def test_alias_opt_out_route_sets_and_clears_flag(db):
+    from fastapi.testclient import TestClient
+    import app as app_module
+
+    rid = database.add_receipt(make_receipt("Google Commerce Limited"))
+    client = TestClient(app_module.app)
+
+    resp = client.post(f"/receipt/{rid}/alias-opt-out", data={"alias_opt_out": "1"})
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert database.get_receipt(rid).alias_opt_out is True
+
+    resp = client.post(f"/receipt/{rid}/alias-opt-out", data={"alias_opt_out": ""})
+    assert resp.status_code == 200
+    assert database.get_receipt(rid).alias_opt_out is False
+
+
+def test_alias_opt_out_route_404_for_missing_receipt(db):
+    from fastapi.testclient import TestClient
+    import app as app_module
+
+    client = TestClient(app_module.app)
+    resp = client.post("/receipt/99999/alias-opt-out", data={"alias_opt_out": "1"})
+    assert resp.status_code == 404
+
+
+def test_receipt_page_shows_opt_out_checkbox_only_when_alias_applies(db):
+    from fastapi.testclient import TestClient
+    import app as app_module
+
+    database.add_alias("google commerce limited", "youtube premium")
+    aliased = database.add_receipt(make_receipt("Google Commerce Limited"))
+    plain = database.add_receipt(make_receipt("Amazon"))
+    client = TestClient(app_module.app)
+
+    html = client.get(f"/receipt/{aliased}").text
+    assert "This is NOT a Youtube Premium receipt" in html
+    assert 'id="aliasOptOut"' in html
+
+    html = client.get(f"/receipt/{plain}").text
+    assert 'id="aliasOptOut"' not in html

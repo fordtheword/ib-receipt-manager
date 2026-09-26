@@ -81,8 +81,28 @@ function dismissCleanup() {
             <th>Company</th>
             <td>
                 {{ ui.company_name(alias_display_name, receipt.company_name, add_button=false) }}
-                {% if receipt.alias_opt_out and alias_target_ignored %}
-                <div class="text-muted" style="font-size: 0.85em;">Not {{ alias_target_ignored }} (alias ignored)</div>
+                {% if alias_target_ignored %}
+                <label class="text-muted" style="display: flex; align-items: center; gap: 6px; font-size: 0.85em; margin-top: 4px; cursor: pointer;">
+                    <input type="checkbox" id="aliasOptOut" style="width: auto;" {% if receipt.alias_opt_out %}checked{% endif %}
+                           onchange="setAliasOptOut(this)">
+                    This is NOT a {{ alias_target_ignored }} receipt
+                </label>
+                <script>
+                function setAliasOptOut(checkbox) {
+                    const body = new FormData();
+                    body.append('alias_opt_out', checkbox.checked ? '1' : '');
+                    fetch('/receipt/{{ receipt.id }}/alias-opt-out', { method: 'POST', body })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (!data.success) throw new Error();
+                            window.location.reload();
+                        })
+                        .catch(() => {
+                            checkbox.checked = !checkbox.checked;
+                            alert('Failed to update');
+                        });
+                }
+                </script>
                 {% endif %}
             </td>
         </tr>

@@ -1217,6 +1217,15 @@ async def update_alias_keywords(alias_id: int, not_keywords: str = Form("")):
 
 # Reminder endpoints
 
+@app.post("/receipt/{receipt_id}/alias-opt-out")
+async def set_alias_opt_out(receipt_id: int, alias_opt_out: str = Form("")):
+    """Set the per-receipt "This is NOT <alias>" flag from the detail page."""
+    if not database.get_receipt(receipt_id):
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    database.update_receipt(receipt_id, alias_opt_out=bool(alias_opt_out))
+    return {"success": True}
+
+
 @app.post("/receipt/{receipt_id}/toggle-recurring")
 async def toggle_recurring(receipt_id: int, confirm: bool = Form(default=False)):
     """Toggle the recurring reminder flag on a receipt.
