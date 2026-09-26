@@ -38,6 +38,10 @@
             color: var(--text-color);
             transition: background 0.3s, color 0.3s;
         }
+        /* Wide pages (the receipts list) need room for the full table */
+        body.wide { max-width: 1150px; }
+        /* Tables too wide for their card scroll inside it instead of spilling out */
+        .table-scroll { overflow-x: auto; }
         header {
             background: var(--header-bg);
             color: white;
@@ -235,7 +239,7 @@
         }
     </style>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
     <header>
         <h1>Receipt Manager</h1>
         <nav>

@@ -2,6 +2,7 @@
 {% import "_macros.html" as ui %}
 
 {% block title %}All Receipts - Receipt Manager{% endblock %}
+{% block body_class %}wide{% endblock %}
 
 {% block content %}
 <style>
@@ -228,6 +229,7 @@ td:last-child, th:last-child {
     {% endif %}
 
     {% if receipts %}
+    <div class="table-scroll">
     <table>
         <thead>
             <tr>
@@ -329,6 +331,7 @@ td:last-child, th:last-child {
         </tbody>
         {% endfor %}
     </table>
+    </div>
 
     <!-- Pagination -->
     {% set total_pages = (total / per_page)|round(0, 'ceil')|int %}
